@@ -27,3 +27,6 @@ build/
 
 # Rust
 src/vcad/target/
+
+# Claude Code
+CLAUDE.md
