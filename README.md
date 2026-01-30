@@ -16,11 +16,14 @@
 ## Project Structure
 
 ```
-src/            - Parametric CAD scripts
+src/            - Parametric CAD scripts (Build123d, Python)
+src/vcad/       - Parametric CAD scripts (vcad, Rust)
+src/blender/    - Blender MCP workflow scripts
 models/         - Generated 3D files (STL, 3MF)
-  test/         - Test/verification models
-  components/   - Individual part models
+  components/   - Build123d-generated part models
+  vcad/         - vcad-generated part models
   assembly/     - Full assembly models
+  test/         - Test/verification models
 docs/           - Documentation
 reference/      - Research notes
 ```
@@ -53,8 +56,13 @@ STL and 3MF files in `models/components/`. Assembly visualization in `models/ass
 - [Assembly Guide](docs/assembly-guide.md) - Step-by-step assembly
 - [Calibration Guide](docs/calibration-guide.md) - First-time setup
 - [CAD Tooling Research](docs/cad-tooling-research.md) - Tool selection rationale
+- [Blender MCP Setup](docs/blender-mcp-setup.md) - Blender integration via MCP
+- [vcad Setup](docs/vcad-setup.md) - Rust CSG modeling setup
+- [Workflow Comparison](docs/workflow-comparison.md) - Build123d vs vcad vs Blender
 
 ## Regenerating Models
+
+### Build123d (precision parts)
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate && pip install build123d
@@ -63,3 +71,13 @@ python src/vial_cradle.py
 python src/tension_system.py
 python src/frame.py
 ```
+
+### vcad (rapid prototypes)
+
+```bash
+cargo run --manifest-path src/vcad/Cargo.toml
+```
+
+### Blender MCP (visualization)
+
+See [Blender MCP Setup](docs/blender-mcp-setup.md) for connecting Blender to Claude Code.
