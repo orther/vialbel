@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Frame",
+    "file": "main_frame.stl",
+    "position": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.6,
+      0.6,
+      0.6,
+      1.0
+    ]
+  },
+  {
+    "name": "PeelPlate",
+    "file": "peel_plate.stl",
+    "position": [
+      93.0,
+      0.0,
+      20.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.2,
+      0.5,
+      0.8,
+      1.0
+    ]
+  },
+  {
+    "name": "VialCradle",
+    "file": "vial_cradle.stl",
+    "position": [
+      58.0,
+      25.0,
+      5.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.8,
+      0.4,
+      0.2,
+      1.0
+    ]
+  },
+  {
+    "name": "SpoolHolder",
+    "file": "spool_holder.stl",
+    "position": [
+      -70.0,
+      -30.0,
+      5.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.3,
+      0.7,
+      0.3,
+      1.0
+    ]
+  },
+  {
+    "name": "DancerArm",
+    "file": "dancer_arm.stl",
+    "position": [
+      -20.0,
+      -25.0,
+      45.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.7,
+      0.2,
+      0.5,
+      1.0
+    ]
+  },
+  {
+    "name": "GuideRollerBracket",
+    "file": "guide_roller_bracket.stl",
+    "position": [
+      23.0,
+      -35.0,
+      5.0
+    ],
+    "rotation": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "color": [
+      0.8,
+      0.8,
+      0.2,
+      1.0
+    ]
+  }
+]

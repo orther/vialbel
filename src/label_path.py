@@ -27,6 +27,9 @@ LABEL_THICKNESS = cfg["label_thickness"]
 MIN_BEND_RADIUS = cfg["min_bend_radius"]
 
 # Component positions (from frame.py)
+# TODO: Source these values from models/assembly_manifest.json instead of
+# recomputing them here.  This would make frame.py the single source of truth
+# for all component positions across the project.
 BASE_THICKNESS = cfg["base_thickness"]
 WALL_HEIGHT = cfg["frame_wall_height"]
 WALL_THICKNESS = cfg["frame_wall_thickness"]

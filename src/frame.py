@@ -13,6 +13,7 @@ Layout (top view, X = left-right, Y = front-back):
                                         [Vial cradle]
 """
 
+import json
 from pathlib import Path
 
 from build123d import *
@@ -69,6 +70,63 @@ dancer_y = -base_width / 2 + 35.0
 guide_x = peel_wall_x - 70.0
 guide_y = -base_width / 2 + 25.0
 guide_mount_spacing = 15.0  # matches bracket hole spacing
+
+# ---------------------------------------------------------------------------
+# Assembly manifest — single source of truth for component positions
+# ---------------------------------------------------------------------------
+def get_component_positions() -> list[dict]:
+    """Return component positions for the assembly manifest.
+
+    Each entry contains the component name, STL filename, position (mm),
+    rotation (degrees), and display color (RGBA).  Positions are derived
+    from the variables defined above so that frame.py remains the single
+    source of truth.
+    """
+    return [
+        {
+            "name": "Frame",
+            "file": "main_frame.stl",
+            "position": [0.0, 0.0, 0.0],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.6, 0.6, 0.6, 1.0],
+        },
+        {
+            "name": "PeelPlate",
+            "file": "peel_plate.stl",
+            "position": [peel_wall_x, peel_wall_y, peel_mount_z],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.2, 0.5, 0.8, 1.0],
+        },
+        {
+            "name": "VialCradle",
+            "file": "vial_cradle.stl",
+            "position": [cradle_center_x, cradle_center_y, base_thickness],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.8, 0.4, 0.2, 1.0],
+        },
+        {
+            "name": "SpoolHolder",
+            "file": "spool_holder.stl",
+            "position": [spool_x, spool_y, base_thickness],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.3, 0.7, 0.3, 1.0],
+        },
+        {
+            "name": "DancerArm",
+            "file": "dancer_arm.stl",
+            "position": [dancer_x, dancer_y, base_thickness + pivot_post_height],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.7, 0.2, 0.5, 1.0],
+        },
+        {
+            "name": "GuideRollerBracket",
+            "file": "guide_roller_bracket.stl",
+            "position": [guide_x, guide_y, base_thickness],
+            "rotation": [0.0, 0.0, 0.0],
+            "color": [0.8, 0.8, 0.2, 1.0],
+        },
+    ]
+
 
 # ---------------------------------------------------------------------------
 # Output
@@ -298,5 +356,14 @@ print(f"Assembly bounding box: {abb.size.X:.2f} x {abb.size.Y:.2f} x {abb.size.Z
 assembly_stl = str(assembly_dir / "full_assembly.stl")
 export_stl(assembly_result, assembly_stl, tolerance=0.01, angular_tolerance=0.1)
 print(f"Exported: {assembly_stl}")
+
+# ---------------------------------------------------------------------------
+# Write assembly manifest JSON
+# ---------------------------------------------------------------------------
+manifest = get_component_positions()
+manifest_path = Path(__file__).resolve().parent.parent / "models" / "assembly_manifest.json"
+manifest_path.parent.mkdir(parents=True, exist_ok=True)
+manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+print(f"\nWrote assembly manifest: {manifest_path}")
 
 print("\nFrame and assembly build complete.")
