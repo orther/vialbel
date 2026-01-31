@@ -23,6 +23,25 @@ COMPONENTS_DIR = os.path.join(PROJECT_ROOT, "models", "components")
 MANIFEST_PATH = os.path.join(PROJECT_ROOT, "models", "assembly_manifest.json")
 
 # ---------------------------------------------------------------------------
+# Material overrides per component type
+# ---------------------------------------------------------------------------
+
+MATERIAL_OVERRIDES = {
+    "Frame": {"metallic": 0.8, "roughness": 0.25},
+    "PeelPlate": {"metallic": 0.6, "roughness": 0.3},
+    # Printed parts — matte PLA/ASA finish
+    "VialCradle": {"metallic": 0.0, "roughness": 0.6},
+    "SpoolHolder": {"metallic": 0.0, "roughness": 0.6},
+    "TensionArm": {"metallic": 0.0, "roughness": 0.6},
+    "GuideRoller": {"metallic": 0.0, "roughness": 0.6},
+    "LabelGuide": {"metallic": 0.0, "roughness": 0.6},
+    "BaseMount": {"metallic": 0.0, "roughness": 0.6},
+}
+
+# Default for parts not listed above
+DEFAULT_MATERIAL = {"metallic": 0.0, "roughness": 0.5}
+
+# ---------------------------------------------------------------------------
 # CLI argument parsing (after Blender's -- separator)
 # ---------------------------------------------------------------------------
 
@@ -52,13 +71,13 @@ def parse_args():
         "--samples",
         type=int,
         default=128,
-        help="Cycles sample count (default: 128)",
+        help="Render sample count (default: 128)",
     )
     return parser.parse_args(argv)
 
 
 # ---------------------------------------------------------------------------
-# Assembly import (reuses logic from import_assembly.py)
+# Assembly import
 # ---------------------------------------------------------------------------
 
 
@@ -66,13 +85,28 @@ def clear_scene():
     """Remove all existing objects."""
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
-    # Also remove orphan data
     for block in bpy.data.meshes:
         if block.users == 0:
             bpy.data.meshes.remove(block)
     for block in bpy.data.materials:
         if block.users == 0:
             bpy.data.materials.remove(block)
+
+
+def apply_material_overrides(obj, name):
+    """Apply material override properties based on component name."""
+    overrides = DEFAULT_MATERIAL
+    for key, props in MATERIAL_OVERRIDES.items():
+        if key in name:
+            overrides = props
+            break
+
+    if obj.data.materials:
+        mat = obj.data.materials[0]
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf:
+            bsdf.inputs["Metallic"].default_value = overrides["metallic"]
+            bsdf.inputs["Roughness"].default_value = overrides["roughness"]
 
 
 def import_stl(filepath, name, location, rotation, color):
@@ -85,18 +119,20 @@ def import_stl(filepath, name, location, rotation, color):
     obj = bpy.context.active_object
     obj.name = name
 
-    # STL units are mm; scale object to meters for Blender.
+    # STL units are mm; scale to meters for Blender.
     obj.scale = (0.001, 0.001, 0.001)
     obj.location = Vector(location) * 0.001
     obj.rotation_euler = tuple(math.radians(r) for r in rotation)
 
-    # Apply material with color.
+    # Create material with color.
     mat = bpy.data.materials.new(name=f"Mat_{name}")
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = color
-        bsdf.inputs["Roughness"].default_value = 0.5
     obj.data.materials.append(mat)
+
+    # Apply per-component overrides.
+    apply_material_overrides(obj, name)
 
     return obj
 
@@ -123,12 +159,17 @@ def import_assembly():
     return imported
 
 
-def get_assembly_center(objects):
-    """Compute the bounding box center of all imported objects in world space."""
-    if not objects:
-        return Vector((0, 0, 0))
+# ---------------------------------------------------------------------------
+# Bounding box utilities
+# ---------------------------------------------------------------------------
 
-    # Force dependency graph update so matrix_world reflects scale/location
+
+def get_assembly_bounds(objects):
+    """Compute min/max corners and center of all objects in world space."""
+    if not objects:
+        zero = Vector((0, 0, 0))
+        return zero, zero, zero
+
     bpy.context.view_layer.update()
 
     min_corner = Vector((float("inf"), float("inf"), float("inf")))
@@ -141,7 +182,17 @@ def get_assembly_center(objects):
                 min_corner[i] = min(min_corner[i], world_corner[i])
                 max_corner[i] = max(max_corner[i], world_corner[i])
 
-    return (min_corner + max_corner) / 2
+    center = (min_corner + max_corner) / 2
+    return min_corner, max_corner, center
+
+
+def compute_camera_distance(bbox_min, bbox_max, fov_deg=50.0, fill_fraction=0.7):
+    """Compute distance so the assembly fills fill_fraction of the frame."""
+    extent = bbox_max - bbox_min
+    max_extent = max(extent.x, extent.y, extent.z)
+    half_fov = math.radians(fov_deg / 2)
+    distance = (max_extent / fill_fraction) / (2 * math.tan(half_fov))
+    return max(distance, 0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -149,58 +200,71 @@ def get_assembly_center(objects):
 # ---------------------------------------------------------------------------
 
 
-def setup_ground_plane(assembly_center):
-    """Add a ground plane below the assembly for shadow catching."""
+def setup_ground_plane(assembly_center, bbox_min):
+    """Add a shadow-catcher ground plane below the assembly."""
     bpy.ops.mesh.primitive_plane_add(
-        size=2.0, location=(assembly_center.x, assembly_center.y, 0.0)
+        size=2.0, location=(assembly_center.x, assembly_center.y, bbox_min.z)
     )
     plane = bpy.context.active_object
     plane.name = "GroundPlane"
-
-    mat = bpy.data.materials.new(name="Mat_Ground")
-    bsdf = mat.node_tree.nodes.get("Principled BSDF")
-    if bsdf:
-        bsdf.inputs["Base Color"].default_value = (0.9, 0.9, 0.9, 1.0)
-        bsdf.inputs["Roughness"].default_value = 0.8
-    plane.data.materials.append(mat)
-
+    plane.is_shadow_catcher = True
     return plane
 
 
-def setup_lighting():
-    """Add sun lamp and area light for studio-style lighting."""
-    # Sun lamp — key light
-    bpy.ops.object.light_add(type="SUN", location=(1.0, -0.5, 1.0))
-    sun = bpy.context.active_object
-    sun.name = "SunLight"
-    sun.data.energy = 3.0
-    sun.rotation_euler = (math.radians(45), math.radians(15), math.radians(-30))
+def setup_three_point_lighting(assembly_center):
+    """Set up 3-point studio lighting: warm key, cool fill, rim."""
+    # Key light — warm, 45 degrees front-right
+    bpy.ops.object.light_add(type="AREA", location=(0.5, -0.5, 0.6))
+    key = bpy.context.active_object
+    key.name = "KeyLight"
+    key.data.energy = 80.0
+    key.data.size = 0.5
+    key.data.color = (1.0, 0.95, 0.9)  # warm
+    key.rotation_euler = (math.radians(55), 0, math.radians(-45))
 
-    # Area light — fill light
-    bpy.ops.object.light_add(type="AREA", location=(-0.5, 0.5, 0.8))
-    area = bpy.context.active_object
-    area.name = "FillLight"
-    area.data.energy = 50.0
-    area.data.size = 1.0
-    area.rotation_euler = (math.radians(60), 0, math.radians(135))
+    # Fill light — cool, opposite side
+    bpy.ops.object.light_add(type="AREA", location=(-0.5, 0.3, 0.4))
+    fill = bpy.context.active_object
+    fill.name = "FillLight"
+    fill.data.energy = 30.0
+    fill.data.size = 0.8
+    fill.data.color = (0.85, 0.9, 1.0)  # cool
+    fill.rotation_euler = (math.radians(60), 0, math.radians(135))
 
-    # World background — neutral grey
+    # Rim light — behind and above
+    bpy.ops.object.light_add(type="AREA", location=(0.0, 0.6, 0.5))
+    rim = bpy.context.active_object
+    rim.name = "RimLight"
+    rim.data.energy = 60.0
+    rim.data.size = 0.4
+    rim.data.color = (1.0, 1.0, 1.0)
+    rim.rotation_euler = (math.radians(120), 0, math.radians(180))
+
+    # World background — procedural gradient sky
     world = bpy.data.worlds.get("World")
     if world is None:
         world = bpy.data.worlds.new("World")
     bpy.context.scene.world = world
+
     nodes = world.node_tree.nodes
     links = world.node_tree.links
-
-    # Clear existing nodes
     nodes.clear()
 
+    # Gradient: light grey top, white bottom
+    tex_coord = nodes.new(type="ShaderNodeTexCoord")
+    separate = nodes.new(type="ShaderNodeSeparateXYZ")
+    ramp = nodes.new(type="ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].color = (0.95, 0.95, 0.97, 1.0)
+    ramp.color_ramp.elements[1].color = (0.8, 0.82, 0.85, 1.0)
+
     bg_node = nodes.new(type="ShaderNodeBackground")
-    bg_node.inputs["Color"].default_value = (0.8, 0.8, 0.8, 1.0)
-    bg_node.inputs["Strength"].default_value = 0.5
+    bg_node.inputs["Strength"].default_value = 0.3
 
     output_node = nodes.new(type="ShaderNodeOutputWorld")
 
+    links.new(tex_coord.outputs["Generated"], separate.inputs["Vector"])
+    links.new(separate.outputs["Z"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], bg_node.inputs["Color"])
     links.new(bg_node.outputs["Background"], output_node.inputs["Surface"])
 
 
@@ -210,20 +274,26 @@ def setup_lighting():
 
 
 def look_at(camera_obj, target):
-    """Point camera at target location using mathutils."""
+    """Point camera at target location."""
     direction = target - camera_obj.location
     rot_quat = direction.to_track_quat("-Z", "Y")
     camera_obj.rotation_euler = rot_quat.to_euler()
 
 
-def setup_camera(position, target):
+def setup_camera(position, target, lens=50, dof_enabled=False, f_stop=4.0):
     """Create or reuse a camera, position it, and point at target."""
     cam_data = bpy.data.cameras.get("RenderCam")
     if cam_data is None:
         cam_data = bpy.data.cameras.new("RenderCam")
-    cam_data.lens = 35
-    cam_data.clip_start = 0.01
+    cam_data.lens = lens
+    cam_data.clip_start = 0.001
     cam_data.clip_end = 100.0
+
+    # Depth of field
+    cam_data.dof.use_dof = dof_enabled
+    if dof_enabled:
+        cam_data.dof.aperture_fstop = f_stop
+        cam_data.dof.focus_distance = (Vector(target) - Vector(position)).length
 
     cam_obj = bpy.data.objects.get("RenderCam")
     if cam_obj is None:
@@ -238,14 +308,81 @@ def setup_camera(position, target):
 
 
 # ---------------------------------------------------------------------------
+# Camera presets (built dynamically from assembly bounds)
+# ---------------------------------------------------------------------------
+
+
+def build_camera_presets(bbox_min, bbox_max, center):
+    """Build 6 camera presets auto-fitted to the assembly bounding box."""
+    dist = compute_camera_distance(bbox_min, bbox_max, fov_deg=50.0, fill_fraction=0.7)
+
+    # Peel plate is roughly at front-bottom of assembly
+    peel_target = Vector((center.x, bbox_min.y, center.z * 0.5))
+
+    return {
+        "hero": {
+            "position": (
+                center.x + dist * 0.6,
+                center.y - dist * 0.7,
+                center.z + dist * 0.4,
+            ),
+            "target": tuple(center),
+            "lens": 50,
+            "dof_enabled": True,
+            "f_stop": 4.0,
+            "filename": "hero_shot.png",
+        },
+        "isometric": {
+            "position": (
+                center.x + dist * 0.577,
+                center.y - dist * 0.577,
+                center.z + dist * 0.577,
+            ),
+            "target": tuple(center),
+            "lens": 50,
+            "filename": "isometric_view.png",
+        },
+        "front": {
+            "position": (center.x, center.y - dist, center.z),
+            "target": tuple(center),
+            "lens": 50,
+            "filename": "front_view.png",
+        },
+        "side": {
+            "position": (center.x + dist, center.y, center.z),
+            "target": tuple(center),
+            "lens": 50,
+            "filename": "side_view.png",
+        },
+        "top": {
+            "position": (center.x, center.y, center.z + dist),
+            "target": tuple(center),
+            "lens": 50,
+            "filename": "top_view.png",
+        },
+        "detail_peel": {
+            "position": (
+                peel_target.x + dist * 0.3,
+                peel_target.y - dist * 0.4,
+                peel_target.z + dist * 0.2,
+            ),
+            "target": tuple(peel_target),
+            "lens": 85,
+            "dof_enabled": True,
+            "f_stop": 2.8,
+            "filename": "detail_peel.png",
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Render configuration
 # ---------------------------------------------------------------------------
 
 
 def configure_render(resolution, samples):
-    """Set up Cycles render engine with denoising."""
+    """Set up render engine — Cycles for samples >= 32, EEVEE otherwise."""
     scene = bpy.context.scene
-    scene.render.engine = "CYCLES"
 
     # Parse resolution
     parts = resolution.split("x")
@@ -259,38 +396,21 @@ def configure_render(resolution, samples):
     scene.render.resolution_y = int(height)
     scene.render.resolution_percentage = 100
 
-    # Cycles settings
-    scene.cycles.samples = samples
-    scene.cycles.use_denoising = True
-    scene.cycles.denoiser = "OPENIMAGEDENOISE"
+    # Engine selection
+    if samples >= 32:
+        scene.render.engine = "CYCLES"
+        scene.cycles.samples = samples
+        scene.cycles.use_denoising = True
+        scene.cycles.denoiser = "OPENIMAGEDENOISE"
+        scene.cycles.device = "CPU"
+    else:
+        scene.render.engine = "BLENDER_EEVEE"
+        scene.eevee.taa_render_samples = samples
 
-    # Use CPU for headless (GPU may not be available)
-    scene.cycles.device = "CPU"
-
-    # Output settings
+    # Output settings — transparent film for shadow catcher compositing
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
-    scene.render.film_transparent = False
-
-
-# ---------------------------------------------------------------------------
-# Camera presets
-# ---------------------------------------------------------------------------
-
-CAMERA_PRESETS = {
-    "hero": {
-        "position": (0.35, -0.30, 0.20),
-        "filename": "hero_shot.png",
-    },
-    "top": {
-        "position": (0.0, 0.0, 0.50),
-        "filename": "top_view.png",
-    },
-    "front": {
-        "position": (0.0, -0.45, 0.08),
-        "filename": "front_detail.png",
-    },
-}
+    scene.render.film_transparent = True
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +421,6 @@ CAMERA_PRESETS = {
 def main():
     args = parse_args()
 
-    # Ensure output directory exists
     os.makedirs(args.output, exist_ok=True)
 
     print(f"Render settings: resolution={args.resolution}, samples={args.samples}")
@@ -314,19 +433,29 @@ def main():
         print("ERROR: No objects imported, aborting render")
         sys.exit(1)
 
-    # Compute assembly center for camera look-at target
-    assembly_center = get_assembly_center(objects)
-    print(f"Assembly center: {assembly_center}")
+    # Compute assembly bounds
+    bbox_min, bbox_max, center = get_assembly_bounds(objects)
+    print(f"Assembly center: {center}")
+    print(f"Assembly extents: {bbox_max - bbox_min}")
 
     # Scene setup
-    setup_ground_plane(assembly_center)
-    setup_lighting()
+    setup_ground_plane(center, bbox_min)
+    setup_three_point_lighting(center)
     configure_render(args.resolution, args.samples)
 
-    # Render each camera preset
-    for name, preset in CAMERA_PRESETS.items():
+    # Build auto-fitted camera presets
+    presets = build_camera_presets(bbox_min, bbox_max, center)
+
+    # Render each view
+    for name, preset in presets.items():
         print(f"Rendering {name} view...")
-        setup_camera(preset["position"], assembly_center)
+        setup_camera(
+            preset["position"],
+            preset["target"],
+            lens=preset.get("lens", 50),
+            dof_enabled=preset.get("dof_enabled", False),
+            f_stop=preset.get("f_stop", 4.0),
+        )
 
         output_path = os.path.join(args.output, preset["filename"])
         bpy.context.scene.render.filepath = output_path
