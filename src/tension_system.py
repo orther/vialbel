@@ -72,17 +72,28 @@ roller_hub_radius = bearing_od / 2 + wall_thickness
 spring_hole_offset = 10.0  # distance from pivot center
 
 with BuildPart() as dancer:
-    # Build arm profile as a 2D sketch, then extrude
-    with BuildSketch():
-        # Pivot hub circle
-        Circle(radius=pivot_hub_radius)
-        # Roller hub circle
-        with Locations([(dancer_arm_length, 0)]):
-            Circle(radius=roller_hub_radius)
-        # Connecting rectangle
-        with Locations([(dancer_arm_length / 2, 0)]):
-            Rectangle(dancer_arm_length, dancer_arm_width)
-    extrude(amount=dancer_arm_thickness)
+    # Build arm from 3D primitives (avoids non-manifold sketch union issue)
+    # Pivot hub
+    Cylinder(
+        radius=pivot_hub_radius,
+        height=dancer_arm_thickness,
+        align=(Align.CENTER, Align.CENTER, Align.MIN),
+    )
+    # Roller hub at far end
+    with Locations([(dancer_arm_length, 0, 0)]):
+        Cylinder(
+            radius=roller_hub_radius,
+            height=dancer_arm_thickness,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+        )
+    # Connecting bar
+    with Locations([(dancer_arm_length / 2, 0, 0)]):
+        Box(
+            length=dancer_arm_length,
+            width=dancer_arm_width,
+            height=dancer_arm_thickness,
+            align=(Align.CENTER, Align.CENTER, Align.MIN),
+        )
     # Pivot bore
     Cylinder(
         radius=pivot_bore / 2,
