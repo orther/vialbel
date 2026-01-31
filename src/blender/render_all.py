@@ -247,7 +247,13 @@ def configure_render(resolution, samples):
     scene.render.engine = "CYCLES"
 
     # Parse resolution
-    width, height = resolution.split("x")
+    parts = resolution.split("x")
+    if len(parts) != 2:
+        print(
+            f"ERROR: Invalid resolution format '{resolution}', expected WxH (e.g., 1920x1080)"
+        )
+        sys.exit(1)
+    width, height = parts
     scene.render.resolution_x = int(width)
     scene.render.resolution_y = int(height)
     scene.render.resolution_percentage = 100

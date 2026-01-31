@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate STL files for 3D printability: manifold, overhang, and wall thickness checks."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -15,14 +16,26 @@ except ImportError:
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 COMPONENTS_DIR = PROJECT_ROOT / "models" / "components"
 
-COMPONENT_FILES = [
-    "main_frame.stl",
-    "peel_plate.stl",
-    "vial_cradle.stl",
-    "spool_holder.stl",
-    "dancer_arm.stl",
-    "guide_roller_bracket.stl",
-]
+
+def _load_component_files():
+    manifest_path = PROJECT_ROOT / "models" / "assembly_manifest.json"
+    try:
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+        return [entry["file"] for entry in manifest]
+    except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+        print(f"WARNING: Could not load manifest ({e}), using default list")
+        return [
+            "main_frame.stl",
+            "peel_plate.stl",
+            "vial_cradle.stl",
+            "spool_holder.stl",
+            "dancer_arm.stl",
+            "guide_roller_bracket.stl",
+        ]
+
+
+COMPONENT_FILES = _load_component_files()
 
 MIN_WALL_THICKNESS_MM = 0.8
 MAX_OVERHANG_RATIO = 0.50  # 50% — generous for parts with cylinders, fillets, V-grooves

@@ -15,7 +15,6 @@ from config import load_config
 cfg = load_config()
 
 # --- Parameters ---
-spool_core_id = 25.0
 spool_spindle_od = cfg["spool_spindle_od"]
 spool_height = cfg["spool_height"]
 spool_flange_diameter = cfg["spool_flange_diameter"]
@@ -176,7 +175,7 @@ for name, comp in components:
         exporter.add_shape(part)
         exporter.write(mf_path)
         print(f"  Exported: {mf_path}")
-    except (RuntimeError, Exception) as e:
+    except Exception as e:
         print(f"  3mf export skipped ({e}), STL is primary format")
 
 print("\nAll components exported successfully.")

@@ -51,6 +51,7 @@ bearing_id = 8.0
 bracket_base_width = 25.0
 bracket_base_depth = 20.0
 bracket_height = 25.0
+pivot_post_height = 40.0
 
 [profiles.22mm]
 # Override for 22mm vials (common lab size)

@@ -8,6 +8,7 @@ Generates a 3D visualization of the path and validates geometric constraints
 (minimum bend radius, clearances, total path length).
 """
 
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,47 +26,56 @@ cfg = load_config()
 LABEL_WIDTH = cfg["label_width"]
 LABEL_THICKNESS = cfg["label_thickness"]
 MIN_BEND_RADIUS = cfg["min_bend_radius"]
-
-# Component positions (from frame.py)
-# TODO: Source these values from models/assembly_manifest.json instead of
-# recomputing them here.  This would make frame.py the single source of truth
-# for all component positions across the project.
 BASE_THICKNESS = cfg["base_thickness"]
-WALL_HEIGHT = cfg["frame_wall_height"]
-WALL_THICKNESS = cfg["frame_wall_thickness"]
-BASE_LENGTH = cfg["frame_length"]
-BASE_WIDTH = cfg["frame_width"]
+VIAL_DIAMETER = cfg["vial_diameter"]
+DANCER_ARM_LENGTH = cfg["dancer_arm_length"]
 
-# Peel plate
-PEEL_WALL_X = BASE_LENGTH / 2 - WALL_THICKNESS / 2 - 5.0
-PEEL_MOUNT_Z = WALL_HEIGHT / 2 + BASE_THICKNESS
-PEEL_EDGE_X = PEEL_WALL_X - 25.0 / 2 - WALL_THICKNESS / 2 + 25.0 / 2
-PEEL_EDGE_Z = PEEL_MOUNT_Z  # label exits at peel edge height
+# ---------------------------------------------------------------------------
+# Component positions — read from assembly manifest (single source of truth)
+# ---------------------------------------------------------------------------
+_MANIFEST_PATH = (
+    Path(__file__).resolve().parent.parent / "models" / "assembly_manifest.json"
+)
+
+
+def _load_positions() -> dict[str, tuple[float, float, float]]:
+    """Load component positions from the assembly manifest."""
+    with open(_MANIFEST_PATH, "r") as f:
+        manifest = json.load(f)
+    return {entry["name"]: tuple(entry["position"]) for entry in manifest}
+
+
+_positions = _load_positions()
+
+# Peel plate position + derived peel edge location
+_peel_pos = _positions["PeelPlate"]
+PEEL_EDGE_X = _peel_pos[0]
+PEEL_EDGE_Z = _peel_pos[2]
 
 # Vial cradle
-CRADLE_X = PEEL_WALL_X - 35.0
-CRADLE_Y = 25.0
-VIAL_DIAMETER = cfg["vial_diameter"]
-VIAL_CENTER_Z = (
-    BASE_THICKNESS + cfg["cradle_v_block_height"]
-)  # top of V-block where vial sits
+_cradle_pos = _positions["VialCradle"]
+CRADLE_X = _cradle_pos[0]
+CRADLE_Y = _cradle_pos[1]
+VIAL_CENTER_Z = BASE_THICKNESS + cfg["cradle_v_block_height"]
 
 # Spool holder
-SPOOL_X = -BASE_LENGTH / 2 + 30.0
-SPOOL_Y = -BASE_WIDTH / 2 + 30.0
-SPOOL_EXIT_Z = BASE_THICKNESS + cfg["spool_flange_thickness"] + cfg["spool_height"] / 2
+_spool_pos = _positions["SpoolHolder"]
+SPOOL_X = _spool_pos[0]
+SPOOL_Y = _spool_pos[1]
+SPOOL_EXIT_Z = _spool_pos[2] + cfg["spool_flange_thickness"] + cfg["spool_height"] / 2
 
 # Dancer arm
-DANCER_X = -BASE_LENGTH / 2 + 80.0
-DANCER_Y = -BASE_WIDTH / 2 + 35.0
-DANCER_ARM_LENGTH = cfg["dancer_arm_length"]
-PIVOT_POST_HEIGHT = 40.0
+_dancer_pos = _positions["DancerArm"]
+DANCER_X = _dancer_pos[0]
+DANCER_Y = _dancer_pos[1]
+PIVOT_POST_HEIGHT = cfg["pivot_post_height"]
 DANCER_ROLLER_Z = BASE_THICKNESS + PIVOT_POST_HEIGHT + cfg["dancer_arm_thickness"] / 2
 
 # Guide roller bracket
-GUIDE_X = PEEL_WALL_X - 70.0
-GUIDE_Y = -BASE_WIDTH / 2 + 25.0
-GUIDE_ROLLER_Z = BASE_THICKNESS + cfg["bracket_height"] - cfg["bearing_od"] / 2 - 2.0
+_guide_pos = _positions["GuideRollerBracket"]
+GUIDE_X = _guide_pos[0]
+GUIDE_Y = _guide_pos[1]
+GUIDE_ROLLER_Z = _guide_pos[2] + cfg["bracket_height"] - cfg["bearing_od"] / 2 - 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -145,8 +155,8 @@ def segment_length(a: Waypoint, b: Waypoint) -> float:
     return math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2 + (b.z - a.z) ** 2)
 
 
-def validate_path(waypoints: list[Waypoint]) -> list[str]:
-    """Validate path constraints. Returns list of issues (empty = pass)."""
+def validate_path(waypoints: list[Waypoint]) -> tuple[list[str], float]:
+    """Validate path constraints. Returns (issues, total_path_length)."""
     issues = []
 
     # Check bend radii at each roller
