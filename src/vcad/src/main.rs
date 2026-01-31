@@ -1,11 +1,14 @@
 //! Vial label applicator components built with vcad.
 //!
-//! Generates simplified versions of each component as STL and GLB files.
+//! Generates simplified versions of each component as STL files.
 //! These lack BREP fillets (vcad is mesh-based) but are suitable for
 //! Blender MCP import and rapid prototyping.
 
+mod dancer_arm;
 mod frame;
+mod guide_roller_bracket;
 mod peel_plate;
+mod spool_holder;
 mod vial_cradle;
 
 fn main() {
@@ -14,26 +17,22 @@ fn main() {
 
     println!("Building vcad components...\n");
 
-    let plate = peel_plate::build();
-    let plate_path = format!("{}/peel_plate.stl", output_dir);
-    plate
-        .write_stl(&plate_path)
-        .expect("Failed to write peel plate STL");
-    println!("Exported: {}", plate_path);
+    let components: Vec<(&str, Box<dyn Fn() -> vcad::Part>)> = vec![
+        ("peel_plate", Box::new(peel_plate::build)),
+        ("vial_cradle", Box::new(vial_cradle::build)),
+        ("main_frame", Box::new(frame::build)),
+        ("spool_holder", Box::new(spool_holder::build)),
+        ("dancer_arm", Box::new(dancer_arm::build)),
+        ("guide_roller_bracket", Box::new(guide_roller_bracket::build)),
+    ];
 
-    let cradle = vial_cradle::build();
-    let cradle_path = format!("{}/vial_cradle.stl", output_dir);
-    cradle
-        .write_stl(&cradle_path)
-        .expect("Failed to write vial cradle STL");
-    println!("Exported: {}", cradle_path);
-
-    let frame = frame::build();
-    let frame_path = format!("{}/main_frame.stl", output_dir);
-    frame
-        .write_stl(&frame_path)
-        .expect("Failed to write main frame STL");
-    println!("Exported: {}", frame_path);
+    for (name, build_fn) in &components {
+        let part = build_fn();
+        let path = format!("{}/{}.stl", output_dir, name);
+        part.write_stl(&path)
+            .unwrap_or_else(|e| panic!("Failed to write {} STL: {}", name, e));
+        println!("Exported: {}", path);
+    }
 
     println!("\nAll vcad components built.");
 }

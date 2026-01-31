@@ -4,6 +4,8 @@ Designed to be executed via blender-mcp's execute_blender_code tool.
 Expects STL files in models/components/ relative to the project root.
 """
 
+import math
+
 import bpy
 import os
 from mathutils import Vector
@@ -79,7 +81,7 @@ def import_stl(filepath, name, location, rotation, color):
     # STL units are mm, Blender default is meters. Scale 1:1 (mm mode).
     # Position in mm coordinates.
     obj.location = Vector(location) * 0.001  # convert mm to m
-    obj.rotation_euler = tuple(r * 3.14159 / 180 for r in rotation)
+    obj.rotation_euler = tuple(math.radians(r) for r in rotation)
 
     # Apply material with color.
     mat = bpy.data.materials.new(name=f"Mat_{name}")
