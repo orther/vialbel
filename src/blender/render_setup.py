@@ -104,5 +104,4 @@ def setup_render():
     print("Render setup complete. Use F12 or Render > Render Image.")
 
 
-if __name__ == "__main__" or True:
-    setup_render()
+setup_render()
