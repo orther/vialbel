@@ -943,18 +943,17 @@ def main():
         args.resolution, args.samples, args.fps, args.duration, args.preview
     )
 
-    # Render verification frames (first, middle, last)
-    print("\n9. Rendering verification frames...")
+    # Render
     scene = bpy.context.scene
     total_frames = scene.frame_end
-    check_frames = [1, total_frames // 2, total_frames]
-    for frame in check_frames:
-        scene.frame_set(frame)
-        scene.render.filepath = os.path.join(args.output, f"frame_{frame:04d}")
-        bpy.ops.render.render(write_still=True)
-        print(f"   Saved frame {frame}: {scene.render.filepath}.png")
 
-    print("\nAnimation demo complete — all phases verified.")
+    # Set output path pattern for animation rendering
+    scene.render.filepath = os.path.join(args.output, "frame_")
+
+    print(f"\n9. Rendering {total_frames} frames...")
+    bpy.ops.render.render(animation=True)
+
+    print(f"\nAnimation render complete — {total_frames} frames saved to {args.output}")
 
 
 if __name__ == "__main__":
