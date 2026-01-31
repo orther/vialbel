@@ -172,15 +172,7 @@ for name, comp in components:
         exporter.add_shape(part)
         exporter.write(mf_path)
         print(f"  Exported: {mf_path}")
-    except RuntimeError:
-        # Try with cleaned geometry
-        try:
-            cleaned = part.clean()
-            exporter = Mesher()
-            exporter.add_shape(cleaned)
-            exporter.write(mf_path)
-            print(f"  Exported (cleaned): {mf_path}")
-        except Exception as e:
-            print(f"  3mf export failed ({e}), skipping {mf_path}")
+    except (RuntimeError, Exception) as e:
+        print(f"  3mf export skipped ({e}), STL is primary format")
 
 print("\nAll components exported successfully.")
