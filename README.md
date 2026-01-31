@@ -16,11 +16,14 @@
 ## Project Structure
 
 ```
-src/            - Parametric CAD scripts
+src/            - Parametric CAD scripts (Build123d, Python)
+src/vcad/       - Parametric CAD scripts (vcad, Rust)
+src/blender/    - Blender MCP workflow scripts
 models/         - Generated 3D files (STL, 3MF)
-  test/         - Test/verification models
-  components/   - Individual part models
+  components/   - Build123d-generated part models
+  vcad/         - vcad-generated part models
   assembly/     - Full assembly models
+  test/         - Test/verification models
 docs/           - Documentation
 reference/      - Research notes
 ```
@@ -32,6 +35,49 @@ reference/      - Research notes
 3. **Tension System** - Spring-loaded backing paper tension
 4. **Main Frame** - Integrates all components
 
-## Setup
+## Generated Models
 
-See [docs/installation-guide.md](docs/installation-guide.md) for CAD environment setup.
+| Component | Bounding Box (mm) | Script |
+|-----------|-------------------|--------|
+| Peel Plate | 46 x 25 x 15 | `src/peel_plate.py` |
+| Vial Cradle | 53 x 36 x 23 | `src/vial_cradle.py` |
+| Spool Holder | 40 x 40 x 33 | `src/tension_system.py` |
+| Dancer Arm | 82 x 27 x 5 | `src/tension_system.py` |
+| Guide Roller Bracket | 25 x 20 x 28 | `src/tension_system.py` |
+| Main Frame | 200 x 120 x 45 | `src/frame.py` |
+
+STL and 3MF files in `models/components/`. Assembly visualization in `models/assembly/`.
+
+## Documentation
+
+- [Installation Guide](docs/installation-guide.md) - CAD environment setup
+- [Print Settings](docs/print-settings.md) - Bambu Studio ASA profiles
+- [Hardware BOM](docs/hardware-bom.md) - Non-printed parts list
+- [Assembly Guide](docs/assembly-guide.md) - Step-by-step assembly
+- [Calibration Guide](docs/calibration-guide.md) - First-time setup
+- [CAD Tooling Research](docs/cad-tooling-research.md) - Tool selection rationale
+- [Blender MCP Setup](docs/blender-mcp-setup.md) - Blender integration via MCP
+- [vcad Setup](docs/vcad-setup.md) - Rust CSG modeling setup
+- [Workflow Comparison](docs/workflow-comparison.md) - Build123d vs vcad vs Blender
+
+## Regenerating Models
+
+### Build123d (precision parts)
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate && pip install build123d
+python src/peel_plate.py
+python src/vial_cradle.py
+python src/tension_system.py
+python src/frame.py
+```
+
+### vcad (rapid prototypes)
+
+```bash
+cargo run --manifest-path src/vcad/Cargo.toml
+```
+
+### Blender MCP (visualization)
+
+See [Blender MCP Setup](docs/blender-mcp-setup.md) for connecting Blender to Claude Code.

@@ -24,3 +24,9 @@ Thumbs.db
 # Build artifacts
 dist/
 build/
+
+# Rust
+src/vcad/target/
+
+# Claude Code
+CLAUDE.md
