@@ -331,10 +331,6 @@ def create_label_strip():
         bsdf.inputs["Roughness"].default_value = 0.3
     strip.data.materials.append(mat)
 
-    # Position at spool exit initially
-    spool_exit = WAYPOINTS[0]["pos"]
-    strip.location = Vector(spool_exit)
-
     print(
         f"  Created label strip ({strip_length * 1000:.0f}mm x {strip_width * 1000:.0f}mm)"
     )
@@ -378,6 +374,183 @@ def create_label_roll(spool_position):
 
     print(f"  Created label roll at {roll_loc}")
     return roll
+
+
+# ---------------------------------------------------------------------------
+# Label path curve + deformation
+# ---------------------------------------------------------------------------
+
+
+def create_label_path_curve():
+    """Create a 3D Bezier curve following the label path waypoints.
+
+    Returns:
+        The curve object.
+    """
+    curve_data = bpy.data.curves.new(name="LabelPathCurve", type="CURVE")
+    curve_data.dimensions = "3D"
+    curve_data.resolution_u = 64
+
+    spline = curve_data.splines.new("BEZIER")
+    spline.bezier_points.add(len(WAYPOINTS) - 1)
+
+    for i, wp in enumerate(WAYPOINTS):
+        bp = spline.bezier_points[i]
+        bp.co = Vector(wp["pos"])
+        bp.handle_left_type = "AUTO"
+        bp.handle_right_type = "AUTO"
+
+    # Tighten handles at sharp bends (peel edge especially)
+    for i, wp in enumerate(WAYPOINTS):
+        if wp.get("radius", 0) > 0:
+            bp = spline.bezier_points[i]
+            radius = wp["radius"]
+            if radius <= 0.002:
+                # Sharp peel edge — use vector handles for crisp bend
+                bp.handle_left_type = "VECTOR"
+                bp.handle_right_type = "VECTOR"
+
+    curve_obj = bpy.data.objects.new("LabelPath", curve_data)
+    bpy.context.scene.collection.objects.link(curve_obj)
+
+    print("  Created label path curve with", len(WAYPOINTS), "control points")
+    return curve_obj
+
+
+def attach_strip_to_curve(strip, curve):
+    """Attach the label strip mesh to the path curve via Curve modifier.
+
+    Args:
+        strip: The LabelStrip mesh object.
+        curve: The LabelPath curve object.
+    """
+    # Position strip origin at curve start
+    strip.location = Vector(WAYPOINTS[0]["pos"])
+
+    mod = strip.modifiers.new("CurveDeform", "CURVE")
+    mod.object = curve
+    mod.deform_axis = "POS_X"
+
+    print("  Attached label strip to path curve")
+
+
+# ---------------------------------------------------------------------------
+# Animation keyframes
+# ---------------------------------------------------------------------------
+
+
+def set_linear_interpolation(obj):
+    """Set all keyframe interpolation to LINEAR for an object (Blender 5.0+ API)."""
+    if not obj.animation_data or not obj.animation_data.action:
+        return
+    action = obj.animation_data.action
+    slot = obj.animation_data.action_slot
+    try:
+        from bpy_extras import anim_utils
+
+        channelbag = anim_utils.action_ensure_channelbag_for_slot(action, slot)
+        for fc in channelbag.fcurves:
+            for kp in fc.keyframe_points:
+                kp.interpolation = "LINEAR"
+    except (ImportError, AttributeError):
+        # Fallback for older Blender versions
+        try:
+            for fc in action.fcurves:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "LINEAR"
+        except AttributeError:
+            pass
+
+
+def setup_animation(fps, duration):
+    """Set up all animation keyframes.
+
+    Timing (at 30fps, 20s = 600 frames):
+      - Frames 1-60 (0-2s): Idle / establishing
+      - Frames 60-150 (2-5s): Label starts advancing from spool
+      - Frames 150-300 (5-10s): Label reaches vial, vial starts rotating
+      - Frames 300-450 (10-15s): Label wraps around vial
+      - Frames 450-600 (15-20s): Complete, hold
+
+    Args:
+        fps: Frames per second.
+        duration: Total duration in seconds.
+    """
+    total_frames = int(fps * duration)
+
+    # Get animated objects by name
+    vial = bpy.data.objects.get("Vial")
+    strip = bpy.data.objects.get("LabelStrip")
+    roll = bpy.data.objects.get("LabelRoll")
+    dancer = bpy.data.objects.get("DancerArm")
+
+    # Frame markers for animation phases
+    idle_end = int(total_frames * 0.10)  # 10% idle
+    feed_start = idle_end
+    contact_start = int(total_frames * 0.25)
+    wrap_end = int(total_frames * 0.75)
+
+    # --- Vial rotation ---
+    if vial:
+        # Vial starts rotating when label contacts
+        vial.rotation_euler = (0, 0, 0)
+        vial.keyframe_insert(data_path="rotation_euler", frame=1)
+        vial.keyframe_insert(data_path="rotation_euler", frame=contact_start)
+
+        # One full revolution during wrap phase
+        vial.rotation_euler = (0, 0, math.radians(360))
+        vial.keyframe_insert(data_path="rotation_euler", frame=wrap_end)
+
+        # Hold final position
+        vial.keyframe_insert(data_path="rotation_euler", frame=total_frames)
+
+        # Set linear interpolation for constant rotation speed
+        set_linear_interpolation(vial)
+
+        print(f"  Vial: rotate frames {contact_start}-{wrap_end}")
+
+    # --- Label strip offset (slide along curve) ---
+    if strip:
+        # Start off-curve (negative X offset hides strip)
+        strip.location.x = WAYPOINTS[0]["pos"][0] - 0.30
+        strip.keyframe_insert(data_path="location", frame=1)
+        strip.keyframe_insert(data_path="location", frame=feed_start)
+
+        # Advance to curve start
+        strip.location.x = WAYPOINTS[0]["pos"][0]
+        strip.keyframe_insert(data_path="location", frame=wrap_end)
+
+        # Hold
+        strip.keyframe_insert(data_path="location", frame=total_frames)
+
+        set_linear_interpolation(strip)
+
+        print(f"  Label strip: advance frames {feed_start}-{wrap_end}")
+
+    # --- Spool roll shrinking ---
+    if roll:
+        roll.scale = (1.0, 1.0, 1.0)
+        roll.keyframe_insert(data_path="scale", frame=1)
+        roll.keyframe_insert(data_path="scale", frame=feed_start)
+
+        # Shrink as label feeds out
+        roll.scale = (0.7, 0.7, 1.0)
+        roll.keyframe_insert(data_path="scale", frame=wrap_end)
+
+        roll.keyframe_insert(data_path="scale", frame=total_frames)
+        print(f"  Label roll: shrink frames {feed_start}-{wrap_end}")
+
+    # --- Dancer arm oscillation ---
+    if dancer:
+        osc_frames = 8  # number of oscillation keyframes
+        for i in range(osc_frames + 1):
+            frame = feed_start + int((wrap_end - feed_start) * i / osc_frames)
+            angle = math.radians(5.0 * math.sin(i * math.pi))
+            dancer.rotation_euler.z = angle
+            dancer.keyframe_insert(data_path="rotation_euler", index=2, frame=frame)
+        print(f"  Dancer arm: oscillate frames {feed_start}-{wrap_end}")
+
+    print(f"  Animation: {total_frames} frames, {duration}s @ {fps}fps")
 
 
 # ---------------------------------------------------------------------------
@@ -571,15 +744,20 @@ def main():
     # Create animation-specific objects
     print("\n2. Creating animation objects...")
     create_vial(positions["VialCradle"])
-    create_label_strip()
+    strip = create_label_strip()
     create_label_roll(positions["SpoolHolder"])
 
+    # Create label path curve and attach strip
+    print("\n3. Creating label path curve...")
+    curve = create_label_path_curve()
+    attach_strip_to_curve(strip, curve)
+
     # Scene setup
-    print("\n3. Setting up scene...")
+    print("\n4. Setting up scene...")
     setup_ground_plane(center, bbox_min)
     setup_three_point_lighting(center)
 
-    # Camera — establishing shot for now
+    # Camera — establishing shot
     dist = compute_camera_distance(bbox_min, bbox_max)
     cam_pos = (
         center.x + dist * 0.6,
@@ -589,20 +767,27 @@ def main():
     setup_camera(cam_pos, tuple(center), lens=50, dof_enabled=True, f_stop=4.0)
 
     # Configure render
-    print("\n4. Configuring render...")
+    print("\n5. Configuring render...")
     configure_render(
         args.resolution, args.samples, args.fps, args.duration, args.preview
     )
 
-    # Render single verification frame
-    print("\n5. Rendering verification frame...")
-    scene = bpy.context.scene
-    scene.frame_set(1)
-    scene.render.filepath = os.path.join(args.output, "frame_0001")
-    bpy.ops.render.render(write_still=True)
-    print(f"   Saved: {scene.render.filepath}.png")
+    # Animation keyframes
+    print("\n6. Setting up animation keyframes...")
+    setup_animation(args.fps, args.duration)
 
-    print("\nPhase 1 complete — static scene verified.")
+    # Render verification frames (first, middle, last)
+    print("\n7. Rendering verification frames...")
+    scene = bpy.context.scene
+    total_frames = scene.frame_end
+    check_frames = [1, total_frames // 2, total_frames]
+    for frame in check_frames:
+        scene.frame_set(frame)
+        scene.render.filepath = os.path.join(args.output, f"frame_{frame:04d}")
+        bpy.ops.render.render(write_still=True)
+        print(f"   Saved frame {frame}: {scene.render.filepath}.png")
+
+    print("\nAnimation setup complete — scene and keyframes verified.")
 
 
 if __name__ == "__main__":
