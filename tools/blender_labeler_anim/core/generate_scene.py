@@ -78,7 +78,7 @@ def create_lighting():
 
     # Key light
     key_data = bpy.data.lights.new('KeyLight', 'AREA')
-    key_data.energy = 50000  # mW (adjusted for mm scale)
+    key_data.energy = 5000000  # High wattage for mm-scale scene (scale_length=0.001)
     key_data.size = 100
     key = bpy.data.objects.new('KeyLight', key_data)
     key.location = (150, -100, 200)
@@ -88,7 +88,7 @@ def create_lighting():
 
     # Fill light
     fill_data = bpy.data.lights.new('FillLight', 'AREA')
-    fill_data.energy = 25000
+    fill_data.energy = 2500000
     fill_data.size = 80
     fill = bpy.data.objects.new('FillLight', fill_data)
     fill.location = (-100, -80, 100)
@@ -98,7 +98,7 @@ def create_lighting():
 
     # Rim light
     rim_data = bpy.data.lights.new('RimLight', 'AREA')
-    rim_data.energy = 30000
+    rim_data.energy = 3000000
     rim_data.size = 60
     rim = bpy.data.objects.new('RimLight', rim_data)
     rim.location = (-50, 150, 150)
