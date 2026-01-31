@@ -76,7 +76,8 @@ def check_wall_thickness(mesh):
 
     # Use ray-mesh intersection
     locations, index_ray, index_tri = mesh.ray.intersects_location(
-        ray_origins=centroids + ray_directions * 0.001,  # offset slightly to avoid self-hit
+        ray_origins=centroids
+        + ray_directions * 0.001,  # offset slightly to avoid self-hit
         ray_directions=ray_directions,
     )
 
@@ -97,7 +98,6 @@ def check_wall_thickness(mesh):
 def validate_component(filepath):
     """Run all checks on a single STL file. Returns (passed, report_lines)."""
     mesh = trimesh.load(filepath, force="mesh")
-    name = filepath.name
     lines = []
     passed = True
 
@@ -113,7 +113,9 @@ def validate_component(filepath):
     overhang_ratio = check_overhangs(mesh)
     overhang_pct = overhang_ratio * 100
     if overhang_ratio > MAX_OVERHANG_RATIO:
-        lines.append(f"  FAIL Overhang: {overhang_pct:.1f}% unsupported (max {MAX_OVERHANG_RATIO*100:.0f}%)")
+        lines.append(
+            f"  FAIL Overhang: {overhang_pct:.1f}% unsupported (max {MAX_OVERHANG_RATIO * 100:.0f}%)"
+        )
         passed = False
     else:
         lines.append(f"  PASS Overhang: {overhang_pct:.1f}% unsupported")
@@ -124,7 +126,9 @@ def validate_component(filepath):
         if min_wall is None:
             lines.append("  SKIP Wall thickness: could not determine")
         elif min_wall < MIN_WALL_THICKNESS_MM:
-            lines.append(f"  FAIL Wall thickness: {min_wall:.2f}mm (min {MIN_WALL_THICKNESS_MM}mm)")
+            lines.append(
+                f"  FAIL Wall thickness: {min_wall:.2f}mm (min {MIN_WALL_THICKNESS_MM}mm)"
+            )
             passed = False
         else:
             lines.append(f"  PASS Wall thickness: {min_wall:.2f}mm")
@@ -157,7 +161,7 @@ def main():
     if missing:
         print(f"\nMissing files: {', '.join(missing)}")
 
-    print(f"\n{'='*40}")
+    print(f"\n{'=' * 40}")
     if all_passed:
         print("All components passed validation.")
     else:

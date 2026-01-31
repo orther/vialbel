@@ -46,7 +46,9 @@ PEEL_EDGE_Z = PEEL_MOUNT_Z  # label exits at peel edge height
 CRADLE_X = PEEL_WALL_X - 35.0
 CRADLE_Y = 25.0
 VIAL_DIAMETER = cfg["vial_diameter"]
-VIAL_CENTER_Z = BASE_THICKNESS + cfg["cradle_v_block_height"]  # top of V-block where vial sits
+VIAL_CENTER_Z = (
+    BASE_THICKNESS + cfg["cradle_v_block_height"]
+)  # top of V-block where vial sits
 
 # Spool holder
 SPOOL_X = -BASE_LENGTH / 2 + 30.0
@@ -72,6 +74,7 @@ GUIDE_ROLLER_Z = BASE_THICKNESS + cfg["bracket_height"] - cfg["bearing_od"] / 2 
 @dataclass
 class Waypoint:
     """A point along the label path."""
+
     name: str
     x: float
     y: float
@@ -164,7 +167,12 @@ def validate_path(waypoints: list[Waypoint]) -> list[str]:
         total_length += seg
         # Add arc length at wrap points
         if waypoints[i + 1].roller_radius > 0 and waypoints[i + 1].wrap_angle > 0:
-            arc = (waypoints[i + 1].wrap_angle / 360.0) * 2 * math.pi * waypoints[i + 1].roller_radius
+            arc = (
+                (waypoints[i + 1].wrap_angle / 360.0)
+                * 2
+                * math.pi
+                * waypoints[i + 1].roller_radius
+            )
             total_length += arc
 
     if total_length < 200.0:
@@ -175,7 +183,9 @@ def validate_path(waypoints: list[Waypoint]) -> list[str]:
     # Check no segment crosses through the base plate (Z < 0)
     for wp in waypoints:
         if wp.z < BASE_THICKNESS:
-            issues.append(f"{wp.name}: Z={wp.z:.1f}mm is below base plate top ({BASE_THICKNESS}mm)")
+            issues.append(
+                f"{wp.name}: Z={wp.z:.1f}mm is below base plate top ({BASE_THICKNESS}mm)"
+            )
 
     return issues, total_length
 
@@ -243,13 +253,19 @@ waypoints = build_waypoints()
 # Print path report
 print("Label Path Analysis")
 print("=" * 60)
-print(f"\nLabel: {LABEL_WIDTH}mm x {LABEL_THICKNESS}mm, min bend radius: {MIN_BEND_RADIUS}mm")
-print(f"\nWaypoints:")
+print(
+    f"\nLabel: {LABEL_WIDTH}mm x {LABEL_THICKNESS}mm, min bend radius: {MIN_BEND_RADIUS}mm"
+)
+print("\nWaypoints:")
 for i, wp in enumerate(waypoints):
-    wrap_info = f", wrap={wp.wrap_angle:.0f}°, R={wp.roller_radius:.1f}mm" if wp.roller_radius > 0 else ""
+    wrap_info = (
+        f", wrap={wp.wrap_angle:.0f}°, R={wp.roller_radius:.1f}mm"
+        if wp.roller_radius > 0
+        else ""
+    )
     print(f"  {i + 1}. {wp.name}: ({wp.x:.1f}, {wp.y:.1f}, {wp.z:.1f}){wrap_info}")
 
-print(f"\nSegment lengths:")
+print("\nSegment lengths:")
 for i in range(len(waypoints) - 1):
     seg = segment_length(waypoints[i], waypoints[i + 1])
     print(f"  {waypoints[i].name} → {waypoints[i + 1].name}: {seg:.1f}mm")
@@ -269,7 +285,9 @@ print("\nBuilding path visualization...")
 try:
     path_part = build_path_visualization(waypoints)
     bb = path_part.bounding_box()
-    print(f"Path visualization bounding box: {bb.size.X:.1f} x {bb.size.Y:.1f} x {bb.size.Z:.1f} mm")
+    print(
+        f"Path visualization bounding box: {bb.size.X:.1f} x {bb.size.Y:.1f} x {bb.size.Z:.1f} mm"
+    )
 
     stl_path = str(output_dir / "label_path.stl")
     export_stl(path_part, stl_path, tolerance=0.01, angular_tolerance=0.1)

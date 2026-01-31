@@ -36,7 +36,9 @@ center_above_vertex = vial_radius / math.sin(half_angle)  # ~11.31mm
 v_wall_height = center_above_vertex + vial_radius * 0.5  # ~15.3mm above vertex
 
 # Width of V opening at the top of the walls
-v_top_half_width = v_wall_height * math.tan(half_angle)  # at 45deg, equals v_wall_height
+v_top_half_width = v_wall_height * math.tan(
+    half_angle
+)  # at 45deg, equals v_wall_height
 v_top_width = 2.0 * v_top_half_width
 
 # Overall block width: V opening + wall thickness on each side

@@ -9,7 +9,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 try:
@@ -41,14 +40,14 @@ def load_config(profile: str | None = None) -> dict:
         profiles = raw.get("profiles", {})
         if profile not in profiles:
             available = ", ".join(profiles.keys()) or "(none)"
-            raise ValueError(
-                f"Unknown profile '{profile}'. Available: {available}"
-            )
+            raise ValueError(f"Unknown profile '{profile}'. Available: {available}")
         cfg.update(profiles[profile])
 
     # Derived values
-    cfg.setdefault("peel_channel_width",
-                   cfg["label_width"] + cfg.get("peel_channel_width_clearance", 1.0))
+    cfg.setdefault(
+        "peel_channel_width",
+        cfg["label_width"] + cfg.get("peel_channel_width_clearance", 1.0),
+    )
     cfg.setdefault("cradle_base_width", cfg["vial_diameter"] + 20.0)
     cfg.setdefault("cradle_length", cfg["vial_diameter"] + 19.0)
 

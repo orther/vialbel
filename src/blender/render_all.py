@@ -11,7 +11,7 @@ import os
 import sys
 
 import bpy
-from mathutils import Vector, Matrix
+from mathutils import Vector
 
 # ---------------------------------------------------------------------------
 # Project paths
@@ -148,7 +148,9 @@ def get_assembly_center(objects):
 
 def setup_ground_plane(assembly_center):
     """Add a ground plane below the assembly for shadow catching."""
-    bpy.ops.mesh.primitive_plane_add(size=2.0, location=(assembly_center.x, assembly_center.y, 0.0))
+    bpy.ops.mesh.primitive_plane_add(
+        size=2.0, location=(assembly_center.x, assembly_center.y, 0.0)
+    )
     plane = bpy.context.active_object
     plane.name = "GroundPlane"
 

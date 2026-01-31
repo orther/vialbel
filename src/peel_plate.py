@@ -55,7 +55,9 @@ with BuildPart() as part:
             # Start at rear-bottom
             l1 = Line((0, 0), (overall_depth, 0))  # bottom face, rear to front
             l2 = Line(l1 @ 1, (overall_depth, wedge_front_height))  # front face up
-            l3 = Line(l2 @ 1, (overall_depth - top_surface_depth, overall_height))  # angled top to flat
+            l3 = Line(
+                l2 @ 1, (overall_depth - top_surface_depth, overall_height)
+            )  # angled top to flat
             l4 = Line(l3 @ 1, (0, overall_height))  # flat top / rear top
             l5 = Line(l4 @ 1, l1 @ 0)  # rear face down
         make_face()
@@ -125,9 +127,13 @@ with BuildPart() as part:
 # ---------------------------------------------------------------------------
 result = part.part
 bb = result.bounding_box()
-print(f"Peel plate bounding box: {bb.size.X:.2f} x {bb.size.Y:.2f} x {bb.size.Z:.2f} mm")
+print(
+    f"Peel plate bounding box: {bb.size.X:.2f} x {bb.size.Y:.2f} x {bb.size.Z:.2f} mm"
+)
 
-export_stl(result, "models/components/peel_plate.stl", tolerance=0.01, angular_tolerance=0.1)
+export_stl(
+    result, "models/components/peel_plate.stl", tolerance=0.01, angular_tolerance=0.1
+)
 print("Exported: models/components/peel_plate.stl")
 
 exporter = Mesher()
