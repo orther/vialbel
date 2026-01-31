@@ -180,13 +180,4 @@ for name, comp in components:
     export_stl(part, stl_path)
     print(f"  Exported: {stl_path}")
 
-    mf_path = str(output_dir / f"{name}.3mf")
-    try:
-        exporter = Mesher()
-        exporter.add_shape(part)
-        exporter.write(mf_path)
-        print(f"  Exported: {mf_path}")
-    except Exception as e:
-        print(f"  3mf export skipped ({e}), STL is primary format")
-
 print("\nAll components exported successfully.")

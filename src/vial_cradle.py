@@ -148,14 +148,7 @@ print(f"\nBounding box: {bb.size.X:.2f} x {bb.size.Y:.2f} x {bb.size.Z:.2f} mm")
 
 # --- Export ---
 stl_path = "models/components/vial_cradle.stl"
-threemf_path = "models/components/vial_cradle.3mf"
-
 export_stl(part, stl_path, tolerance=0.01, angular_tolerance=0.1)
 print(f"Exported: {stl_path}")
-
-exporter = Mesher()
-exporter.add_shape(part)
-exporter.write(threemf_path)
-print(f"Exported: {threemf_path}")
 
 print("\nVial cradle build complete.")

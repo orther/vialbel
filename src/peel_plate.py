@@ -136,9 +136,4 @@ export_stl(
 )
 print("Exported: models/components/peel_plate.stl")
 
-exporter = Mesher()
-exporter.add_shape(result)
-exporter.write("models/components/peel_plate.3mf")
-print("Exported: models/components/peel_plate.3mf")
-
 print("Peel plate build complete.")
