@@ -53,14 +53,13 @@ def import_stl(filepath, name, location, rotation, color):
     obj = bpy.context.active_object
     obj.name = name
 
-    # STL units are mm, Blender default is meters. Scale 1:1 (mm mode).
-    # Position in mm coordinates.
-    obj.location = Vector(location) * 0.001  # convert mm to m
+    # STL units are mm; scale object to meters for Blender.
+    obj.scale = (0.001, 0.001, 0.001)
+    obj.location = Vector(location) * 0.001
     obj.rotation_euler = tuple(math.radians(r) for r in rotation)
 
     # Apply material with color.
     mat = bpy.data.materials.new(name=f"Mat_{name}")
-    mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = color

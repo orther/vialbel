@@ -85,13 +85,13 @@ def import_stl(filepath, name, location, rotation, color):
     obj = bpy.context.active_object
     obj.name = name
 
-    # STL units are mm; convert to meters for Blender.
+    # STL units are mm; scale object to meters for Blender.
+    obj.scale = (0.001, 0.001, 0.001)
     obj.location = Vector(location) * 0.001
     obj.rotation_euler = tuple(math.radians(r) for r in rotation)
 
     # Apply material with color.
     mat = bpy.data.materials.new(name=f"Mat_{name}")
-    mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = color
@@ -124,9 +124,12 @@ def import_assembly():
 
 
 def get_assembly_center(objects):
-    """Compute the bounding box center of all imported objects."""
+    """Compute the bounding box center of all imported objects in world space."""
     if not objects:
         return Vector((0, 0, 0))
+
+    # Force dependency graph update so matrix_world reflects scale/location
+    bpy.context.view_layer.update()
 
     min_corner = Vector((float("inf"), float("inf"), float("inf")))
     max_corner = Vector((float("-inf"), float("-inf"), float("-inf")))
@@ -155,7 +158,6 @@ def setup_ground_plane(assembly_center):
     plane.name = "GroundPlane"
 
     mat = bpy.data.materials.new(name="Mat_Ground")
-    mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (0.9, 0.9, 0.9, 1.0)
@@ -187,7 +189,6 @@ def setup_lighting():
     if world is None:
         world = bpy.data.worlds.new("World")
     bpy.context.scene.world = world
-    world.use_nodes = True
     nodes = world.node_tree.nodes
     links = world.node_tree.links
 
@@ -220,7 +221,7 @@ def setup_camera(position, target):
     cam_data = bpy.data.cameras.get("RenderCam")
     if cam_data is None:
         cam_data = bpy.data.cameras.new("RenderCam")
-    cam_data.lens = 50
+    cam_data.lens = 35
     cam_data.clip_start = 0.01
     cam_data.clip_end = 100.0
 
@@ -278,15 +279,15 @@ def configure_render(resolution, samples):
 
 CAMERA_PRESETS = {
     "hero": {
-        "position": (0.25, -0.22, 0.18),
+        "position": (0.35, -0.30, 0.20),
         "filename": "hero_shot.png",
     },
     "top": {
-        "position": (0.0, 0.0, 0.4),
+        "position": (0.0, 0.0, 0.50),
         "filename": "top_view.png",
     },
     "front": {
-        "position": (0.0, -0.3, 0.08),
+        "position": (0.0, -0.45, 0.08),
         "filename": "front_detail.png",
     },
 }
