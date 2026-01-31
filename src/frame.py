@@ -296,22 +296,6 @@ stl_path = str(output_dir / "main_frame.stl")
 export_stl(result, stl_path, tolerance=0.01, angular_tolerance=0.1)
 print(f"Exported: {stl_path}")
 
-mf_path = str(output_dir / "main_frame.3mf")
-try:
-    exporter = Mesher()
-    exporter.add_shape(result)
-    exporter.write(mf_path)
-    print(f"Exported: {mf_path}")
-except Exception:
-    try:
-        cleaned = result.clean()
-        exporter = Mesher()
-        exporter.add_shape(cleaned)
-        exporter.write(mf_path)
-        print(f"Exported (cleaned): {mf_path}")
-    except Exception as e2:
-        print(f"3mf export failed ({e2}), skipping {mf_path}")
-
 # ---------------------------------------------------------------------------
 # Assembly visualization - placeholder shapes at correct positions
 # ---------------------------------------------------------------------------
