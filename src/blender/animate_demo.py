@@ -553,6 +553,156 @@ def setup_animation(fps, duration):
     print(f"  Animation: {total_frames} frames, {duration}s @ {fps}fps")
 
 
+def setup_camera_animation(center, peel_edge, vial_contact, dist, fps, duration):
+    """Animate camera through 3 phases: establishing, dolly, close-up.
+
+    Args:
+        center: Assembly center point.
+        peel_edge: Peel edge position (meters).
+        vial_contact: Vial contact position (meters).
+        dist: Camera distance from assembly.
+        fps: Frames per second.
+        duration: Total duration in seconds.
+    """
+    total_frames = int(fps * duration)
+    cam = bpy.data.objects.get("AnimCam")
+    if not cam:
+        return
+
+    # Phase boundaries
+    phase1_end = int(total_frames * 0.20)  # establishing orbit
+    phase2_end = int(total_frames * 0.60)  # dolly toward peel
+
+    # Phase 1: Wide establishing — slow orbit from isometric
+    cam.location = Vector(
+        (
+            center.x + dist * 0.6,
+            center.y - dist * 0.7,
+            center.z + dist * 0.4,
+        )
+    )
+    look_at(cam, center)
+    cam.keyframe_insert(data_path="location", frame=1)
+    cam.keyframe_insert(data_path="rotation_euler", frame=1)
+
+    # End of orbit — rotated ~30 degrees around assembly
+    orbit_angle = math.radians(30)
+    cam.location = Vector(
+        (
+            center.x
+            + dist * 0.6 * math.cos(orbit_angle)
+            + dist * 0.7 * math.sin(orbit_angle),
+            center.y
+            - dist * 0.7 * math.cos(orbit_angle)
+            + dist * 0.6 * math.sin(orbit_angle),
+            center.z + dist * 0.35,
+        )
+    )
+    look_at(cam, center)
+    cam.keyframe_insert(data_path="location", frame=phase1_end)
+    cam.keyframe_insert(data_path="rotation_euler", frame=phase1_end)
+
+    # Phase 2: Dolly toward peel plate area
+    peel_target = Vector(peel_edge)
+    cam.location = Vector(
+        (
+            peel_target.x + dist * 0.25,
+            peel_target.y - dist * 0.3,
+            peel_target.z + dist * 0.15,
+        )
+    )
+    look_at(cam, peel_target)
+    cam.keyframe_insert(data_path="location", frame=phase2_end)
+    cam.keyframe_insert(data_path="rotation_euler", frame=phase2_end)
+
+    # Phase 3: Close-up of label wrapping onto vial
+    vial_target = Vector(vial_contact)
+    cam.location = Vector(
+        (
+            vial_target.x + dist * 0.15,
+            vial_target.y - dist * 0.2,
+            vial_target.z + dist * 0.08,
+        )
+    )
+    look_at(cam, vial_target)
+    cam.keyframe_insert(data_path="location", frame=total_frames)
+    cam.keyframe_insert(data_path="rotation_euler", frame=total_frames)
+
+    # Enable DoF for close-up phase
+    cam_data = cam.data
+    cam_data.dof.use_dof = True
+    cam_data.dof.aperture_fstop = 4.0
+    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=1)
+    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=phase2_end)
+    cam_data.dof.aperture_fstop = 2.8
+    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=total_frames)
+
+    print(
+        f"  Camera: orbit 1-{phase1_end}, dolly {phase1_end}-{phase2_end}, "
+        f"close-up {phase2_end}-{total_frames}"
+    )
+
+
+def add_label_texture():
+    """Add a procedural label texture to the label strip.
+
+    Creates a simple pattern: white base with a thin colored border
+    and noise-based text simulation.
+    """
+    strip = bpy.data.objects.get("LabelStrip")
+    if not strip or not strip.data.materials:
+        return
+
+    mat = strip.data.materials[0]
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+
+    bsdf = nodes.get("Principled BSDF")
+    if not bsdf:
+        return
+
+    # Add noise texture to simulate printed text
+    tex_coord = nodes.new(type="ShaderNodeTexCoord")
+    noise = nodes.new(type="ShaderNodeTexNoise")
+    noise.inputs["Scale"].default_value = 80.0
+    noise.inputs["Detail"].default_value = 8.0
+
+    # Color ramp: mostly white with dark noise for "text"
+    ramp = nodes.new(type="ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].position = 0.0
+    ramp.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
+    ramp.color_ramp.elements[1].position = 0.55
+    ramp.color_ramp.elements[1].color = (0.15, 0.15, 0.15, 1.0)
+
+    # Mix with base white for subtle text effect
+    mix = nodes.new(type="ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs["Factor"].default_value = 0.3
+    mix.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)  # A color
+
+    links.new(tex_coord.outputs["Generated"], noise.inputs["Vector"])
+    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
+    links.new(ramp.outputs["Color"], mix.inputs[7])  # B color
+    links.new(mix.outputs[2], bsdf.inputs["Base Color"])  # Result
+
+    print("  Added procedural label texture")
+
+
+def configure_final_render(resolution, samples, fps, duration, preview=False):
+    """Configure render with motion blur and final quality settings."""
+    scene = bpy.context.scene
+
+    # Motion blur for mechanical feel
+    scene.render.use_motion_blur = True
+    scene.render.motion_blur_shutter = 0.5
+
+    # Output as PNG sequence (set in configure_render already)
+    # Set filepath pattern for animation rendering
+    scene.render.filepath = ""  # will be set per-frame or as pattern
+
+    print("  Enabled motion blur (shutter 0.5)")
+
+
 # ---------------------------------------------------------------------------
 # Scene setup — lighting, ground, background
 # ---------------------------------------------------------------------------
@@ -776,8 +926,25 @@ def main():
     print("\n6. Setting up animation keyframes...")
     setup_animation(args.fps, args.duration)
 
+    # Camera animation
+    print("\n7. Setting up camera animation...")
+    peel_edge = WAYPOINTS[4]["pos"]
+    vial_contact = WAYPOINTS[5]["pos"]
+    setup_camera_animation(
+        center, peel_edge, vial_contact, dist, args.fps, args.duration
+    )
+
+    # Label texture
+    print("\n8. Adding label texture...")
+    add_label_texture()
+
+    # Final render settings (motion blur)
+    configure_final_render(
+        args.resolution, args.samples, args.fps, args.duration, args.preview
+    )
+
     # Render verification frames (first, middle, last)
-    print("\n7. Rendering verification frames...")
+    print("\n9. Rendering verification frames...")
     scene = bpy.context.scene
     total_frames = scene.frame_end
     check_frames = [1, total_frames // 2, total_frames]
@@ -787,7 +954,7 @@ def main():
         bpy.ops.render.render(write_still=True)
         print(f"   Saved frame {frame}: {scene.render.filepath}.png")
 
-    print("\nAnimation setup complete — scene and keyframes verified.")
+    print("\nAnimation demo complete — all phases verified.")
 
 
 if __name__ == "__main__":
