@@ -12,6 +12,7 @@ Tests verify:
 """
 
 import json
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,15 @@ import pytest
 
 # Project paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _ruff_cmd():
+    """Return the ruff command as a list. Prefer 'ruff' on PATH, fall back to 'uvx ruff'."""
+    if shutil.which("ruff"):
+        return ["ruff"]
+    return ["uvx", "ruff"]
+
+
 CONFIG_PATH = PROJECT_ROOT / "config.toml"
 MANIFEST_PATH = PROJECT_ROOT / "models" / "assembly_manifest.json"
 COMPONENTS_DIR = PROJECT_ROOT / "models" / "components"
@@ -195,9 +205,7 @@ class TestAssemblyManifest:
                         f"{component['name']}: {channel}={value} not in [0.0, 1.0]"
                     )
 
-        assert not invalid_colors, "Invalid color values:\n" + "\n".join(
-            invalid_colors
-        )
+        assert not invalid_colors, "Invalid color values:\n" + "\n".join(invalid_colors)
 
     def test_manifest_component_names(self, manifest):
         """Verify expected components are present in manifest."""
@@ -227,7 +235,7 @@ class TestCodeQuality:
         assert len(py_files) > 0, "No Python files found in src/"
 
         result = subprocess.run(
-            ["uvx", "ruff", "check"] + [str(f) for f in py_files],
+            [*_ruff_cmd(), "check"] + [str(f) for f in py_files],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
@@ -244,7 +252,7 @@ class TestCodeQuality:
         assert len(py_files) > 0, "No Python files found in src/"
 
         result = subprocess.run(
-            ["uvx", "ruff", "format", "--check"] + [str(f) for f in py_files],
+            [*_ruff_cmd(), "format", "--check"] + [str(f) for f in py_files],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True,
