@@ -6,23 +6,18 @@
 
 use vcad::*;
 
-// Parameters (matching src/tension_system.py)
-const SPOOL_SPINDLE_OD: f64 = 24.5;
-const SPOOL_HEIGHT: f64 = 30.0;
-const SPOOL_FLANGE_DIAMETER: f64 = 40.0;
-const SPOOL_FLANGE_THICKNESS: f64 = 3.0;
-const MOUNT_HOLE_DIAMETER: f64 = 3.2;
+use crate::config::Config;
 
-pub fn build() -> Part {
+pub fn build(cfg: &Config) -> Part {
     // Base flange
-    let flange = centered_cylinder("flange", SPOOL_FLANGE_DIAMETER / 2.0, SPOOL_FLANGE_THICKNESS, 64);
+    let flange = centered_cylinder("flange", cfg.spool_flange_diameter / 2.0, cfg.spool_flange_thickness, 64);
 
     // Spindle on top of flange
-    let spindle = centered_cylinder("spindle", SPOOL_SPINDLE_OD / 2.0, SPOOL_HEIGHT, 64)
-        .translate(0.0, 0.0, (SPOOL_FLANGE_THICKNESS + SPOOL_HEIGHT) / 2.0);
+    let spindle = centered_cylinder("spindle", cfg.spool_spindle_od / 2.0, cfg.spool_height, 64)
+        .translate(0.0, 0.0, (cfg.spool_flange_thickness + cfg.spool_height) / 2.0);
 
     // M3 mounting hole through center
-    let hole = centered_cylinder("hole", MOUNT_HOLE_DIAMETER / 2.0, SPOOL_FLANGE_THICKNESS + 2.0, 32);
+    let hole = centered_cylinder("hole", cfg.mount_hole_diameter / 2.0, cfg.spool_flange_thickness + 2.0, 32);
 
     (flange + spindle) - hole
 }

@@ -5,35 +5,29 @@
 
 use vcad::*;
 
-// Parameters (matching src/tension_system.py)
-const BRACKET_BASE_WIDTH: f64 = 25.0;
-const BRACKET_BASE_DEPTH: f64 = 20.0;
-const BRACKET_HEIGHT: f64 = 25.0;
-const WALL_THICKNESS: f64 = 2.5;
-const PIVOT_BORE: f64 = 8.0;
-const BEARING_OD: f64 = 22.0;
-const MOUNT_HOLE_DIAMETER: f64 = 3.2;
-const MOUNT_HOLE_SPACING: f64 = 15.0;
+use crate::config::Config;
 
-pub fn build() -> Part {
+pub fn build(cfg: &Config) -> Part {
+    let mount_hole_spacing = 15.0;
+
     // Horizontal base plate
-    let base = centered_cube("base", BRACKET_BASE_WIDTH, BRACKET_BASE_DEPTH, WALL_THICKNESS);
+    let base = centered_cube("base", cfg.bracket_base_width, cfg.bracket_base_depth, cfg.wall_thickness);
 
     // Vertical wall (L-shape)
-    let wall = centered_cube("wall", BRACKET_BASE_WIDTH, WALL_THICKNESS, BRACKET_HEIGHT)
-        .translate(0.0, -BRACKET_BASE_DEPTH / 2.0 + WALL_THICKNESS / 2.0, WALL_THICKNESS / 2.0 + BRACKET_HEIGHT / 2.0);
+    let wall = centered_cube("wall", cfg.bracket_base_width, cfg.wall_thickness, cfg.bracket_height)
+        .translate(0.0, -cfg.bracket_base_depth / 2.0 + cfg.wall_thickness / 2.0, cfg.wall_thickness / 2.0 + cfg.bracket_height / 2.0);
 
     // Roller pin hole through vertical wall
-    let hole_z = WALL_THICKNESS + BRACKET_HEIGHT - BEARING_OD / 2.0 - 2.0;
-    let pin_hole = centered_cylinder("pin_hole", PIVOT_BORE / 2.0, WALL_THICKNESS + 2.0, 32)
+    let hole_z = cfg.wall_thickness + cfg.bracket_height - cfg.bearing_od / 2.0 - 2.0;
+    let pin_hole = centered_cylinder("pin_hole", cfg.pivot_bore / 2.0, cfg.wall_thickness + 2.0, 32)
         .rotate(90.0, 0.0, 0.0)
-        .translate(0.0, -BRACKET_BASE_DEPTH / 2.0 + WALL_THICKNESS / 2.0, hole_z);
+        .translate(0.0, -cfg.bracket_base_depth / 2.0 + cfg.wall_thickness / 2.0, hole_z);
 
     // Two M3 mounting holes in base
-    let mount_hole = centered_cylinder("mount_hole", MOUNT_HOLE_DIAMETER / 2.0, WALL_THICKNESS + 2.0, 32);
+    let mount_hole = centered_cylinder("mount_hole", cfg.mount_hole_diameter / 2.0, cfg.wall_thickness + 2.0, 32);
     let mount_holes = mount_hole
-        .linear_pattern(MOUNT_HOLE_SPACING, 0.0, 0.0, 2)
-        .translate(-MOUNT_HOLE_SPACING / 2.0, 0.0, 0.0);
+        .linear_pattern(mount_hole_spacing, 0.0, 0.0, 2)
+        .translate(-mount_hole_spacing / 2.0, 0.0, 0.0);
 
     (base + wall) - pin_hole - mount_holes
 }
