@@ -11,6 +11,8 @@ Usage:
 import argparse
 from pathlib import Path
 
+from config_validator import ConfigValidationError, validate  # noqa: F401
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -51,6 +53,7 @@ def load_config(profile: str | None = None) -> dict:
     cfg.setdefault("cradle_base_width", cfg["vial_diameter"] + 20.0)
     cfg.setdefault("cradle_length", cfg["vial_diameter"] + 19.0)
 
+    validate(cfg)
     return cfg
 
 
