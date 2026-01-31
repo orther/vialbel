@@ -10,26 +10,29 @@ from pathlib import Path
 
 from build123d import *
 
+from config import load_config
+
+cfg = load_config()
+
 # --- Parameters ---
-spool_core_id = 25.0
-spool_spindle_od = 24.5
-spool_height = 30.0
-spool_flange_diameter = 40.0
-spool_flange_thickness = 3.0
+spool_spindle_od = cfg["spool_spindle_od"]
+spool_height = cfg["spool_height"]
+spool_flange_diameter = cfg["spool_flange_diameter"]
+spool_flange_thickness = cfg["spool_flange_thickness"]
 
-dancer_arm_length = 60.0
-dancer_arm_width = 12.0
-dancer_arm_thickness = 5.0
-pivot_bore = 8.0
-bearing_od = 22.0
-bearing_id = 8.0
+dancer_arm_length = cfg["dancer_arm_length"]
+dancer_arm_width = cfg["dancer_arm_width"]
+dancer_arm_thickness = cfg["dancer_arm_thickness"]
+pivot_bore = cfg["pivot_bore"]
+bearing_od = cfg["bearing_od"]
+bearing_id = cfg["bearing_id"]
 
-mount_hole_diameter = 3.2
-wall_thickness = 2.5
+mount_hole_diameter = cfg["mount_hole_diameter"]
+wall_thickness = cfg["wall_thickness"]
 
-bracket_base_width = 25.0
-bracket_base_depth = 20.0
-bracket_height = 25.0
+bracket_base_width = cfg["bracket_base_width"]
+bracket_base_depth = cfg["bracket_base_depth"]
+bracket_height = cfg["bracket_height"]
 
 # --- Output directory ---
 output_dir = Path(__file__).resolve().parent.parent / "models" / "components"
@@ -172,15 +175,7 @@ for name, comp in components:
         exporter.add_shape(part)
         exporter.write(mf_path)
         print(f"  Exported: {mf_path}")
-    except RuntimeError:
-        # Try with cleaned geometry
-        try:
-            cleaned = part.clean()
-            exporter = Mesher()
-            exporter.add_shape(cleaned)
-            exporter.write(mf_path)
-            print(f"  Exported (cleaned): {mf_path}")
-        except Exception as e:
-            print(f"  3mf export failed ({e}), skipping {mf_path}")
+    except Exception as e:
+        print(f"  3mf export skipped ({e}), STL is primary format")
 
 print("\nAll components exported successfully.")

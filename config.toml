@@ -1,0 +1,70 @@
+# Vial Label Applicator — Parametric Configuration
+# All dimensions in millimeters.
+
+[default]
+# Vial properties
+vial_diameter = 16.0
+vial_height = 38.5
+
+# Label properties
+label_width = 40.0
+label_height = 20.0
+label_offset_from_bottom = 3.0
+label_thickness = 0.15
+min_bend_radius = 5.0
+
+# Material / print settings
+wall_thickness = 2.5
+base_thickness = 5.0
+mount_hole_diameter = 3.2  # M3 clearance
+fillet_radius = 2.0
+
+# Frame dimensions (derived from components, but can be overridden)
+frame_length = 200.0
+frame_width = 120.0
+frame_wall_height = 30.0
+frame_wall_thickness = 4.0
+
+# Peel plate
+peel_channel_width_clearance = 1.0  # added to label_width
+peel_body_depth = 25.0
+peel_body_height_rear = 15.0
+peel_mount_hole_spacing = 30.0
+
+# Vial cradle
+cradle_base_height = 5.0
+cradle_v_block_height = 18.0
+cradle_mount_slot_spacing_x = 36.0
+cradle_mount_slot_spacing_y = 20.0
+
+# Tension system
+spool_spindle_od = 24.5
+spool_flange_diameter = 40.0
+spool_flange_thickness = 3.0
+spool_height = 30.0
+dancer_arm_length = 60.0
+dancer_arm_width = 12.0
+dancer_arm_thickness = 5.0
+pivot_bore = 8.0
+bearing_od = 22.0
+bearing_id = 8.0
+bracket_base_width = 25.0
+bracket_base_depth = 20.0
+bracket_height = 25.0
+pivot_post_height = 40.0
+
+[profiles.22mm]
+# Override for 22mm vials (common lab size)
+vial_diameter = 22.0
+vial_height = 50.0
+label_width = 55.0
+label_height = 25.0
+frame_length = 240.0
+frame_width = 140.0
+cradle_v_block_height = 22.0
+cradle_mount_slot_spacing_x = 42.0
+peel_body_depth = 30.0
+peel_body_height_rear = 18.0
+peel_mount_hole_spacing = 40.0
+bracket_base_width = 30.0
+bracket_height = 30.0

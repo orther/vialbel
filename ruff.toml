@@ -1,0 +1,8 @@
+[lint]
+# Build123d uses `from build123d import *` by design — suppress star import warnings
+# for CAD scripts that depend on it.
+ignore = ["F403", "F405"]
+
+[lint.per-file-ignores]
+# Blender scripts run inside Blender's Python — bpy/mathutils are always available
+"src/blender/*.py" = ["F401"]
