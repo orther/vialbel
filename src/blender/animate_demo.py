@@ -75,11 +75,21 @@ WAYPOINTS = [
 # ---------------------------------------------------------------------------
 
 VIAL_DIAMETER_M = 0.016
+VIAL_RADIUS_M = VIAL_DIAMETER_M / 2
 VIAL_HEIGHT_M = 0.0385
 LABEL_WIDTH_M = 0.040
 LABEL_HEIGHT_M = 0.020
 SPOOL_FLANGE_DIAMETER_M = 0.040
 SPOOL_SPINDLE_OD_M = 0.0245
+
+# Derived from config.toml: base_thickness=5mm, cradle_v_block_height=18mm
+BASE_THICKNESS_M = 0.005
+CRADLE_V_BLOCK_HEIGHT_M = 0.018
+VIAL_CENTER_Z = BASE_THICKNESS_M + CRADLE_V_BLOCK_HEIGHT_M  # 0.023m
+
+# Assembly manifest positions (mm→m)
+CRADLE_POS = Vector((0.058, 0.025, 0.005))
+VIAL_CENTER = Vector((0.058, 0.025, VIAL_CENTER_Z))
 
 # ---------------------------------------------------------------------------
 # CLI argument parsing
@@ -262,23 +272,22 @@ PEEL_EDGE_POS = Vector(WAYPOINTS[4]["pos"])
 VIAL_CONTACT_POS = Vector(WAYPOINTS[5]["pos"])
 
 
-def create_vial(cradle_position):
+def create_vial():
     """Create a glass vial cylinder above the cradle (will animate drop-in).
 
     The vial lies on its side (Y-axis) to sit in the V-block cradle.
+    Position derived from VIAL_CENTER (assembly manifest + config).
 
     Returns:
         The vial mesh object positioned above the cradle for drop-in animation.
     """
-    # Vial center height when resting in V-block
-    vial_z = cradle_position.z + VIAL_DIAMETER_M / 2 + 0.008
-    # Start position: above cradle for drop-in
-    start_z = vial_z + 0.08  # 80mm above final position
-    vial_loc = (cradle_position.x, cradle_position.y, start_z)
+    # Start position: above final resting position for drop-in
+    start_z = VIAL_CENTER.z + 0.06  # 60mm above final position
+    vial_loc = (VIAL_CENTER.x, VIAL_CENTER.y, start_z)
 
     bpy.ops.mesh.primitive_cylinder_add(
         vertices=32,
-        radius=VIAL_DIAMETER_M / 2,
+        radius=VIAL_RADIUS_M,
         depth=VIAL_HEIGHT_M,
         location=vial_loc,
     )
@@ -288,14 +297,13 @@ def create_vial(cradle_position):
     # Rotate to lie on side — cylinder axis along Y (into the V-block)
     vial.rotation_euler = (math.radians(90), 0, 0)
 
-    # Smooth shading via mesh data
     for face in vial.data.polygons:
         face.use_smooth = True
 
     # Store final Z position as custom property for animation
-    vial["final_z"] = vial_z
+    vial["final_z"] = VIAL_CENTER.z
 
-    # Glass material — visible but translucent (not fully transparent)
+    # Glass material — visible but translucent
     mat = bpy.data.materials.new(name="Mat_Vial_Glass")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
@@ -307,7 +315,9 @@ def create_vial(cradle_position):
         bsdf.inputs["Alpha"].default_value = 0.6
     vial.data.materials.append(mat)
 
-    print("  Created vial (lying on side, start above cradle, drops in Act 1)")
+    print(f"  Created vial at ({VIAL_CENTER.x*1000:.0f}, "
+          f"{VIAL_CENTER.y*1000:.0f}, {VIAL_CENTER.z*1000:.0f})mm, "
+          f"start Z={start_z*1000:.0f}mm")
     return vial
 
 
@@ -492,21 +502,17 @@ def create_backing_return():
     return backing
 
 
-def create_active_label(cradle_position):
+def create_active_label():
     """Create the label that peels off and wraps around the vial.
 
     Uses shape keys: basis = flat on peel plate, key1 = wrapped around vial.
-    The vial lies on its side (Y-axis), so wrapping is around Y axis.
-
-    Args:
-        cradle_position: VialCradle position from manifest (meters).
+    Positions derived from VIAL_CENTER and PEEL_EDGE_POS constants.
 
     Returns:
         The active label mesh object.
     """
     label_w = LABEL_WIDTH_M  # 40mm — wraps around circumference
     label_h = LABEL_HEIGHT_M  # 20mm — along vial axis
-    vial_r = VIAL_DIAMETER_M / 2  # 8mm
     segments_x = 60  # around circumference
     segments_y = 4  # along vial axis
 
@@ -535,11 +541,12 @@ def create_active_label(cradle_position):
     bpy.context.scene.collection.objects.link(label)
 
     # Position flat on peel plate surface near peel edge
+    # Label extends from peel edge toward the vial
     label.location = Vector(
         (
-            PEEL_EDGE_POS.x + label_w / 2,
+            PEEL_EDGE_POS.x - label_w / 2,  # centered between peel edge and vial
             PEEL_EDGE_POS.y,
-            PEEL_EDGE_POS.z + 0.001,
+            PEEL_EDGE_POS.z + 0.001,  # just above peel surface
         )
     )
 
@@ -547,22 +554,23 @@ def create_active_label(cradle_position):
     label.shape_key_add(name="Basis", from_mix=False)
     sk_wrap = label.shape_key_add(name="Wrapped", from_mix=False)
 
-    # Vial lies on side: cylinder axis is Y, center at cradle position
-    vial_center_x = cradle_position.x
-    vial_center_z = cradle_position.z + VIAL_DIAMETER_M / 2 + 0.008
+    # Vial lies on side: cylinder axis is Y, wrapping in XZ plane
+    vial_cx = VIAL_CENTER.x
+    vial_cz = VIAL_CENTER.z
+    wrap_r = VIAL_RADIUS_M + 0.0003  # tiny offset above surface
 
     for i, vert in enumerate(mesh_data.vertices):
         flat_x = vert.co.x
         flat_y = vert.co.y
 
-        # Map X to angle around vial (wrapping in XZ plane since vial Y-axis)
+        # Map X from [-label_w/2, label_w/2] to angle [0, 270°]
         t = (flat_x + label_w / 2) / label_w
         angle = t * math.radians(270)
 
-        wrap_r = vial_r + 0.0003
-        wrapped_x = vial_center_x + wrap_r * math.cos(angle) - label.location.x
+        # Wrapped position: cylindrical coords around vial center
+        wrapped_x = vial_cx + wrap_r * math.cos(angle) - label.location.x
         wrapped_y = flat_y  # Y stays the same (along vial axis)
-        wrapped_z = vial_center_z + wrap_r * math.sin(angle) - label.location.z
+        wrapped_z = vial_cz + wrap_r * math.sin(angle) - label.location.z
 
         sk_wrap.data[i].co = Vector((wrapped_x, wrapped_y, wrapped_z))
 
@@ -577,7 +585,8 @@ def create_active_label(cradle_position):
         bsdf.inputs["Roughness"].default_value = 0.25
     label.data.materials.append(mat)
 
-    print("  Created active label with flat→wrapped shape keys")
+    print(f"  Created active label: flat at peel edge, wraps to "
+          f"({vial_cx*1000:.0f}, {vial_cz*1000:.0f})mm")
     return label
 
 
@@ -642,7 +651,7 @@ def set_linear_interpolation(obj):
             pass
 
 
-def setup_animation(fps, duration, cradle_position):
+def setup_animation(fps, duration):
     """Set up all animation keyframes for the 4-act label application demo.
 
     Act 1 (0-20%):  Vial drops into cradle, material pre-loaded
@@ -653,7 +662,6 @@ def setup_animation(fps, duration, cradle_position):
     Args:
         fps: Frames per second.
         duration: Total duration in seconds.
-        cradle_position: VialCradle position (meters) for vial final Z.
     """
     total = int(fps * duration)
 
@@ -665,7 +673,7 @@ def setup_animation(fps, duration, cradle_position):
     # --- Act 1: Vial drop-in ---
     vial = bpy.data.objects.get("Vial")
     if vial:
-        final_z = vial.get("final_z", cradle_position.z + VIAL_HEIGHT_M / 2)
+        final_z = vial.get("final_z", VIAL_CENTER.z)
 
         # Start above
         vial.keyframe_insert(data_path="location", frame=1)
@@ -782,12 +790,11 @@ def setup_animation(fps, duration, cradle_position):
 
 
 def setup_camera_animation(center, dist, fps, duration):
-    """Animate camera through 4 acts matching the label application story.
+    """Animate camera as a gentle orbit — no aggressive close-ups.
 
-    Act 1: Wide establishing shot — see vial drop in
-    Act 2: Dolly toward peel plate — see separation
-    Act 3: Close-up vial/peel junction — see wrapping
-    Act 4: Pull back — see completed labeled vial
+    Keeps the full machine visible throughout with a slow orbit that
+    shifts attention toward the peel/vial area during Acts 2-3.
+    Camera stays at a comfortable distance to avoid blur/noise.
     """
     total = int(fps * duration)
     cam = bpy.data.objects.get("AnimCam")
@@ -798,82 +805,72 @@ def setup_camera_animation(center, dist, fps, duration):
     act2_end = int(total * 0.60)
     act3_end = int(total * 0.90)
 
-    peel_target = PEEL_EDGE_POS
-    vial_target = VIAL_CONTACT_POS
+    # Fixed orbit radius — never closer than 0.25m
+    orbit_r = max(dist * 0.7, 0.25)
+    orbit_h = max(dist * 0.4, 0.12)
 
-    # Act 1: Wide establishing
-    cam.location = Vector(
-        (
-            center.x + dist * 0.6,
-            center.y - dist * 0.7,
-            center.z + dist * 0.4,
-        )
-    )
+    # Midpoint between peel edge and vial — the action zone
+    action_center = (PEEL_EDGE_POS + VIAL_CENTER) / 2
+
+    # Act 1: Wide 3/4 view from front-right
+    angle1 = math.radians(-40)
+    cam.location = Vector((
+        center.x + orbit_r * math.cos(angle1),
+        center.y + orbit_r * math.sin(angle1),
+        center.z + orbit_h,
+    ))
     look_at(cam, center)
     cam.keyframe_insert(data_path="location", frame=1)
     cam.keyframe_insert(data_path="rotation_euler", frame=1)
 
-    # Slow orbit during Act 1
-    orbit_angle = math.radians(20)
-    cam.location = Vector(
-        (
-            center.x
-            + dist * 0.6 * math.cos(orbit_angle)
-            + dist * 0.7 * math.sin(orbit_angle),
-            center.y
-            - dist * 0.7 * math.cos(orbit_angle)
-            + dist * 0.6 * math.sin(orbit_angle),
-            center.z + dist * 0.35,
-        )
-    )
+    # Act 1 end: slight orbit
+    angle2 = math.radians(-30)
+    cam.location = Vector((
+        center.x + orbit_r * math.cos(angle2),
+        center.y + orbit_r * math.sin(angle2),
+        center.z + orbit_h * 0.9,
+    ))
     look_at(cam, center)
     cam.keyframe_insert(data_path="location", frame=act1_end)
     cam.keyframe_insert(data_path="rotation_euler", frame=act1_end)
 
-    # Act 2: Dolly toward peel plate
-    cam.location = Vector(
-        (
-            peel_target.x + dist * 0.2,
-            peel_target.y - dist * 0.25,
-            peel_target.z + dist * 0.12,
-        )
-    )
-    look_at(cam, peel_target)
+    # Act 2: Orbit toward action area, look at peel/vial zone
+    angle3 = math.radians(-20)
+    cam.location = Vector((
+        action_center.x + orbit_r * 0.8 * math.cos(angle3),
+        action_center.y + orbit_r * 0.8 * math.sin(angle3),
+        action_center.z + orbit_h * 0.8,
+    ))
+    look_at(cam, action_center)
     cam.keyframe_insert(data_path="location", frame=act2_end)
     cam.keyframe_insert(data_path="rotation_euler", frame=act2_end)
 
-    # Act 3: Close-up on vial wrapping
-    mid_target = (peel_target + vial_target) / 2
-    cam.location = Vector(
-        (
-            mid_target.x + dist * 0.12,
-            mid_target.y - dist * 0.15,
-            mid_target.z + dist * 0.06,
-        )
-    )
-    look_at(cam, mid_target)
+    # Act 3: Slightly closer, focused on wrapping
+    angle4 = math.radians(-15)
+    cam.location = Vector((
+        action_center.x + orbit_r * 0.7 * math.cos(angle4),
+        action_center.y + orbit_r * 0.7 * math.sin(angle4),
+        action_center.z + orbit_h * 0.7,
+    ))
+    look_at(cam, VIAL_CENTER)
     cam.keyframe_insert(data_path="location", frame=act3_end)
     cam.keyframe_insert(data_path="rotation_euler", frame=act3_end)
 
     # Act 4: Pull back to show result
-    cam.location = Vector(
-        (
-            center.x + dist * 0.5,
-            center.y - dist * 0.5,
-            center.z + dist * 0.3,
-        )
-    )
-    look_at(cam, vial_target)
+    angle5 = math.radians(-35)
+    cam.location = Vector((
+        center.x + orbit_r * math.cos(angle5),
+        center.y + orbit_r * math.sin(angle5),
+        center.z + orbit_h,
+    ))
+    look_at(cam, VIAL_CENTER)
     cam.keyframe_insert(data_path="location", frame=total)
     cam.keyframe_insert(data_path="rotation_euler", frame=total)
 
-    # No DoF — keep everything sharp and visible
+    # No DoF — keep everything sharp
     cam.data.dof.use_dof = False
 
-    print(
-        f"  Camera: establish 1-{act1_end}, dolly {act1_end}-{act2_end}, "
-        f"close-up {act2_end}-{act3_end}, pull-back {act3_end}-{total}"
-    )
+    print(f"  Camera: gentle orbit, min distance {orbit_r*1000:.0f}mm")
 
 
 # ---------------------------------------------------------------------------
@@ -1026,7 +1023,7 @@ def configure_render(resolution, samples, fps, duration, preview=False):
     # Output settings — PNG sequence
     scene.render.image_settings.file_format = "PNG"
     scene.render.image_settings.color_mode = "RGBA"
-    scene.render.film_transparent = True
+    scene.render.film_transparent = False
 
     print(f"  Render: {width}x{height}, {samples} samples, {fps} fps")
     print(f"  Frames: {scene.frame_start}-{scene.frame_end} ({total_frames} total)")
@@ -1065,12 +1062,12 @@ def main():
         manifest = json.load(f)
     positions = {e["name"]: Vector(e["position"]) * 0.001 for e in manifest}
 
-    # Create animation objects
+    # Create animation objects (positions from derived constants)
     print("\n2. Creating animation objects...")
-    create_vial(positions["VialCradle"])
+    create_vial()
     feed = create_composite_feed()
     create_backing_return()
-    create_active_label(positions["VialCradle"])
+    create_active_label()
     create_label_roll(positions["SpoolHolder"])
 
     # Create feed path curve and attach composite feed
@@ -1094,7 +1091,7 @@ def main():
         center.y - dist * 0.7,
         center.z + dist * 0.4,
     )
-    setup_camera(cam_pos, tuple(center), lens=35, dof_enabled=False)
+    setup_camera(cam_pos, tuple(center), lens=50, dof_enabled=False)
 
     # Configure render
     print("\n5. Configuring render...")
@@ -1104,7 +1101,7 @@ def main():
 
     # Animation keyframes — the core storytelling
     print("\n6. Setting up animation (4-act structure)...")
-    setup_animation(args.fps, args.duration, positions["VialCradle"])
+    setup_animation(args.fps, args.duration)
 
     # Camera animation
     print("\n7. Setting up camera animation...")
