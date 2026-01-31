@@ -17,22 +17,26 @@ from pathlib import Path
 
 from build123d import *
 
+from config import load_config
+
+cfg = load_config()
+
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------
-base_length = 200.0  # mm - X dimension
-base_width = 120.0  # mm - Y dimension
-base_thickness = 5.0  # mm - Z
-wall_height = 30.0  # mm
-wall_thickness = 4.0  # mm
+base_length = cfg["frame_length"]
+base_width = cfg["frame_width"]
+base_thickness = cfg["base_thickness"]
+wall_height = cfg["frame_wall_height"]
+wall_thickness = cfg["frame_wall_thickness"]
 heat_insert_od = 4.0  # mm - heat-set insert outer diameter
 heat_insert_depth = 5.0  # mm
 slot_length = 10.0  # mm - adjustment slot (+-5mm)
 slot_width = 3.4  # mm - M3 clearance slot
 pivot_post_od = 8.0  # mm
 pivot_post_height = 40.0  # mm
-fillet_radius = 2.0  # mm
-m3_hole = 3.2  # mm - M3 clearance
+fillet_radius = cfg["fillet_radius"]
+m3_hole = cfg["mount_hole_diameter"]
 
 # ---------------------------------------------------------------------------
 # Component positions (origin at base plate center)
@@ -42,15 +46,15 @@ m3_hole = 3.2  # mm - M3 clearance
 # The wall is near X = +base_length/2, centered on Y.
 peel_wall_x = base_length / 2 - wall_thickness / 2 - 5.0  # 5mm inset from edge
 peel_wall_y = 0.0
-peel_mount_spacing = 30.0  # matches peel_plate mount_hole_spacing
+peel_mount_spacing = cfg["peel_mount_hole_spacing"]  # matches peel_plate mount_hole_spacing
 peel_mount_z = wall_height / 2 + base_thickness  # vertical center of wall
 
 # Vial cradle sits adjacent to peel plate output, shifted toward front (+Y).
 # Two pairs of adjustment slots on the base plate.
 cradle_center_x = peel_wall_x - 35.0  # ~30mm left of peel wall
 cradle_center_y = 25.0  # front side of base
-cradle_slot_spacing_x = 36.0  # along X
-cradle_slot_spacing_y = 20.0  # along Y
+cradle_slot_spacing_x = cfg["cradle_mount_slot_spacing_x"]  # along X
+cradle_slot_spacing_y = cfg["cradle_mount_slot_spacing_y"]  # along Y
 
 # Spool holder at back-left corner.
 spool_x = -base_length / 2 + 30.0

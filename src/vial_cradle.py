@@ -7,18 +7,22 @@ The vial rotates freely while a label is applied by rolling contact.
 import math
 from build123d import *
 
+from config import load_config
+
+cfg = load_config()
+
 # --- Parameters ---
-vial_diameter = 16.0
+vial_diameter = cfg["vial_diameter"]
 vial_radius = vial_diameter / 2.0
-vial_height = 38.5
-label_bottom_offset = 3.0  # label starts 3mm from vial bottom
-label_height = 20.0
+vial_height = cfg["vial_height"]
+label_bottom_offset = cfg["label_offset_from_bottom"]
+label_height = cfg["label_height"]
 v_angle = 90.0  # included angle of V-block
-wall_thickness = 2.5
-base_thickness = 5.0
-cradle_length = 35.0
+wall_thickness = cfg["wall_thickness"]
+base_thickness = cfg["base_thickness"]
+cradle_length = cfg["cradle_length"]
 mount_slot_length = 5.0
-mount_slot_width = 3.2  # for M3 bolts
+mount_slot_width = cfg["mount_hole_diameter"]  # for M3 bolts
 
 # --- Derived dimensions ---
 half_angle = math.radians(v_angle / 2.0)  # 45 degrees

@@ -8,24 +8,28 @@ downward. The peeled label presents flat on the top surface for vial contact.
 
 from build123d import *
 
+from config import load_config
+
+cfg = load_config()
+
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------
-label_width = 40.0  # mm - width of thermal label
+label_width = cfg["label_width"]
 label_clearance = 0.5  # mm - clearance per side between label and guide rail
 peel_radius = 2.0  # mm - radius of the peel edge fillet
 guide_rail_height = 3.0  # mm - height of side rails above label path surface
-wall_thickness = 2.5  # mm - thickness of side walls / guide rails
-mount_hole_diameter = 3.2  # mm - M3 clearance hole
-mount_hole_spacing = 30.0  # mm - distance between mounting holes
+wall_thickness = cfg["wall_thickness"]
+mount_hole_diameter = cfg["mount_hole_diameter"]
+mount_hole_spacing = cfg["peel_mount_hole_spacing"]
 
 # ---------------------------------------------------------------------------
 # Derived dimensions
 # ---------------------------------------------------------------------------
 internal_width = label_width + 2 * label_clearance  # 41mm channel for label
 overall_width = internal_width + 2 * wall_thickness  # total width with walls
-overall_depth = 25.0  # mm - front to back
-overall_height = 15.0  # mm - total height of wedge body
+overall_depth = cfg["peel_body_depth"]
+overall_height = cfg["peel_body_height_rear"]
 wedge_front_height = 4.0  # mm - thin front edge before fillet
 top_surface_depth = 18.0  # mm - flat top where label presents
 mount_tab_depth = 8.0  # mm - depth of rear section with mount holes

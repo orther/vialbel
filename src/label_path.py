@@ -14,20 +14,24 @@ from pathlib import Path
 
 from build123d import *
 
+from config import load_config
+
+cfg = load_config()
+
 # ---------------------------------------------------------------------------
 # Parameters
 # ---------------------------------------------------------------------------
 # Label stock properties
-LABEL_WIDTH = 40.0  # mm
-LABEL_THICKNESS = 0.15  # mm
-MIN_BEND_RADIUS = 5.0  # mm — minimum for thermal label stock
+LABEL_WIDTH = cfg["label_width"]
+LABEL_THICKNESS = cfg["label_thickness"]
+MIN_BEND_RADIUS = cfg["min_bend_radius"]
 
 # Component positions (from frame.py)
-BASE_THICKNESS = 5.0
-WALL_HEIGHT = 30.0
-WALL_THICKNESS = 4.0
-BASE_LENGTH = 200.0
-BASE_WIDTH = 120.0
+BASE_THICKNESS = cfg["base_thickness"]
+WALL_HEIGHT = cfg["frame_wall_height"]
+WALL_THICKNESS = cfg["frame_wall_thickness"]
+BASE_LENGTH = cfg["frame_length"]
+BASE_WIDTH = cfg["frame_width"]
 
 # Peel plate
 PEEL_WALL_X = BASE_LENGTH / 2 - WALL_THICKNESS / 2 - 5.0
@@ -38,25 +42,25 @@ PEEL_EDGE_Z = PEEL_MOUNT_Z  # label exits at peel edge height
 # Vial cradle
 CRADLE_X = PEEL_WALL_X - 35.0
 CRADLE_Y = 25.0
-VIAL_DIAMETER = 16.0
-VIAL_CENTER_Z = BASE_THICKNESS + 18.0  # top of V-block where vial sits
+VIAL_DIAMETER = cfg["vial_diameter"]
+VIAL_CENTER_Z = BASE_THICKNESS + cfg["cradle_v_block_height"]  # top of V-block where vial sits
 
 # Spool holder
 SPOOL_X = -BASE_LENGTH / 2 + 30.0
 SPOOL_Y = -BASE_WIDTH / 2 + 30.0
-SPOOL_EXIT_Z = BASE_THICKNESS + 3.0 + 15.0  # flange + half spool height
+SPOOL_EXIT_Z = BASE_THICKNESS + cfg["spool_flange_thickness"] + cfg["spool_height"] / 2
 
 # Dancer arm
 DANCER_X = -BASE_LENGTH / 2 + 80.0
 DANCER_Y = -BASE_WIDTH / 2 + 35.0
-DANCER_ARM_LENGTH = 60.0
+DANCER_ARM_LENGTH = cfg["dancer_arm_length"]
 PIVOT_POST_HEIGHT = 40.0
-DANCER_ROLLER_Z = BASE_THICKNESS + PIVOT_POST_HEIGHT + 5.0 / 2  # arm sits on post
+DANCER_ROLLER_Z = BASE_THICKNESS + PIVOT_POST_HEIGHT + cfg["dancer_arm_thickness"] / 2
 
 # Guide roller bracket
 GUIDE_X = PEEL_WALL_X - 70.0
 GUIDE_Y = -BASE_WIDTH / 2 + 25.0
-GUIDE_ROLLER_Z = BASE_THICKNESS + 25.0 - 11.0 - 2.0  # pin hole Z
+GUIDE_ROLLER_Z = BASE_THICKNESS + cfg["bracket_height"] - cfg["bearing_od"] / 2 - 2.0
 
 
 # ---------------------------------------------------------------------------
