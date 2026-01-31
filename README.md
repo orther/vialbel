@@ -6,7 +6,7 @@
 
 | Parameter | Value |
 |-----------|-------|
-| Vial diameter | 16mm |
+| Vial diameter | 16mm (22mm profile available) |
 | Vial height | 38.5mm |
 | Label size | 40mm x 20mm |
 | Label position | 3mm from vial bottom |
@@ -16,68 +16,112 @@
 ## Project Structure
 
 ```
-src/            - Parametric CAD scripts (Build123d, Python)
-src/vcad/       - Parametric CAD scripts (vcad, Rust)
-src/blender/    - Blender MCP workflow scripts
-models/         - Generated 3D files (STL, 3MF)
-  components/   - Build123d-generated part models
-  vcad/         - vcad-generated part models
-  assembly/     - Full assembly models
-  test/         - Test/verification models
-docs/           - Documentation
-reference/      - Research notes
+config.toml             - Parametric dimensions (profiles: default, 22mm)
+src/                    - Parametric CAD scripts (Build123d, Python)
+  config.py             - Config loader with profile support
+  frame.py              - Main frame + assembly manifest generation
+  peel_plate.py         - Label dispensing peel plate
+  vial_cradle.py        - V-block vial holder
+  tension_system.py     - Spool holder, dancer arm, guide roller bracket
+  label_path.py         - Label routing simulation and validation
+  validate_prints.py    - 3D print validation (manifold, overhang, wall thickness)
+src/vcad/               - Parametric CAD scripts (vcad, Rust)
+src/blender/            - Blender visualization and rendering
+  import_assembly.py    - Import assembly via Blender MCP
+  render_all.py         - Headless render script (3 camera presets)
+models/
+  components/           - Build123d-generated STL/3MF files
+  vcad/                 - vcad-generated STL files
+  assembly_manifest.json - Component positions (single source of truth)
+  renders/              - Rendered assembly images
+tests/                  - Integration tests (pytest)
+.github/workflows/      - CI pipeline (Rust + Python + tests)
 ```
 
 ## Components
 
-1. **Peel Plate** - Label dispensing with 2mm radius peel edge
-2. **Vial Cradle** - V-block holder with height positioning
-3. **Tension System** - Spring-loaded backing paper tension
-4. **Main Frame** - Integrates all components
+1. **Main Frame** — Base plate with mounting wall, pivot post, and mounting holes
+2. **Peel Plate** — Label dispensing with 2mm radius peel edge
+3. **Vial Cradle** — V-block holder with height positioning
+4. **Tension System** — Spool holder, spring-loaded dancer arm, guide roller bracket
+5. **Label Path** — Simulated routing: spool → dancer → guide → peel plate → vial
 
-## Generated Models
+## Parametric Configuration
 
-| Component | Bounding Box (mm) | Script |
-|-----------|-------------------|--------|
-| Peel Plate | 46 x 25 x 15 | `src/peel_plate.py` |
-| Vial Cradle | 53 x 36 x 23 | `src/vial_cradle.py` |
-| Spool Holder | 40 x 40 x 33 | `src/tension_system.py` |
-| Dancer Arm | 82 x 27 x 5 | `src/tension_system.py` |
-| Guide Roller Bracket | 25 x 20 x 28 | `src/tension_system.py` |
-| Main Frame | 200 x 120 x 45 | `src/frame.py` |
+All dimensions are defined in `config.toml`. Switch vial sizes with profiles:
 
-STL and 3MF files in `models/components/`. Assembly visualization in `models/assembly/`.
+```bash
+# Default 16mm vial
+python src/peel_plate.py
 
-## Documentation
+# 22mm vial profile
+python src/peel_plate.py --profile 22mm
+```
 
-- [Installation Guide](docs/installation-guide.md) - CAD environment setup
-- [Print Settings](docs/print-settings.md) - Bambu Studio ASA profiles
-- [Hardware BOM](docs/hardware-bom.md) - Non-printed parts list
-- [Assembly Guide](docs/assembly-guide.md) - Step-by-step assembly
-- [Calibration Guide](docs/calibration-guide.md) - First-time setup
-- [CAD Tooling Research](docs/cad-tooling-research.md) - Tool selection rationale
-- [Blender MCP Setup](docs/blender-mcp-setup.md) - Blender integration via MCP
-- [vcad Setup](docs/vcad-setup.md) - Rust CSG modeling setup
-- [Workflow Comparison](docs/workflow-comparison.md) - Build123d vs vcad vs Blender
+Both Python (Build123d) and Rust (vcad) pipelines read from the same `config.toml`.
 
 ## Regenerating Models
 
 ### Build123d (precision parts)
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate && pip install build123d
-python src/peel_plate.py
-python src/vial_cradle.py
-python src/tension_system.py
-python src/frame.py
+python3 -m venv .venv && source .venv/bin/activate
+pip install build123d
+
+python src/frame.py              # Frame + assembly manifest
+python src/peel_plate.py         # Peel plate
+python src/vial_cradle.py        # Vial cradle
+python src/tension_system.py     # Spool holder, dancer arm, guide roller bracket
+python src/label_path.py         # Label path simulation + visualization STL
 ```
 
-### vcad (rapid prototypes)
+### vcad (rapid prototypes, Rust)
 
 ```bash
 cargo run --manifest-path src/vcad/Cargo.toml
 ```
 
-### Blender MCP (visualization)
+### Print Validation
 
-See [Blender MCP Setup](docs/blender-mcp-setup.md) for connecting Blender to Claude Code.
+```bash
+pip install trimesh numpy rtree
+python src/validate_prints.py
+```
+
+### Headless Rendering
+
+```bash
+blender --background --python src/blender/render_all.py -- \
+    --output models/renders/ --resolution 1920x1080 --samples 128
+```
+
+Or use the convenience script:
+
+```bash
+./scripts/render.sh
+```
+
+## Testing
+
+```bash
+pip install pytest ruff
+python -m pytest tests/ -v
+```
+
+Tests validate config loading, profile overrides, manifest structure, STL file existence, and code quality (ruff lint/format) — no build123d required.
+
+## CI
+
+GitHub Actions runs three jobs on push/PR to main:
+- **Rust Check** — `cargo check` + `cargo clippy`
+- **Python Lint** — `ruff check` + `ruff format --check`
+- **Integration Tests** — pytest suite
+
+## Documentation
+
+- [Installation Guide](docs/installation-guide.md) — CAD environment setup
+- [Print Settings](docs/print-settings.md) — Bambu Studio ASA profiles
+- [Hardware BOM](docs/hardware-bom.md) — Non-printed parts list
+- [Assembly Guide](docs/assembly-guide.md) — Step-by-step assembly
+- [Calibration Guide](docs/calibration-guide.md) — First-time setup
+- [Blender MCP Setup](docs/blender-mcp-setup.md) — Blender integration via MCP
