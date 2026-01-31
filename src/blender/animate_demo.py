@@ -265,38 +265,49 @@ VIAL_CONTACT_POS = Vector(WAYPOINTS[5]["pos"])
 def create_vial(cradle_position):
     """Create a glass vial cylinder above the cradle (will animate drop-in).
 
+    The vial lies on its side (Y-axis) to sit in the V-block cradle.
+
     Returns:
         The vial mesh object positioned above the cradle for drop-in animation.
     """
-    vial_z = cradle_position.z + VIAL_HEIGHT_M / 2
+    # Vial center height when resting in V-block
+    vial_z = cradle_position.z + VIAL_DIAMETER_M / 2 + 0.008
     # Start position: above cradle for drop-in
-    start_z = vial_z + 0.15  # 150mm above final position
+    start_z = vial_z + 0.08  # 80mm above final position
     vial_loc = (cradle_position.x, cradle_position.y, start_z)
 
     bpy.ops.mesh.primitive_cylinder_add(
+        vertices=32,
         radius=VIAL_DIAMETER_M / 2,
         depth=VIAL_HEIGHT_M,
         location=vial_loc,
     )
     vial = bpy.context.active_object
     vial.name = "Vial"
-    bpy.ops.object.shade_smooth()
+
+    # Rotate to lie on side — cylinder axis along Y (into the V-block)
+    vial.rotation_euler = (math.radians(90), 0, 0)
+
+    # Smooth shading via mesh data
+    for face in vial.data.polygons:
+        face.use_smooth = True
 
     # Store final Z position as custom property for animation
     vial["final_z"] = vial_z
 
-    # Glass material
+    # Glass material — visible but translucent (not fully transparent)
     mat = bpy.data.materials.new(name="Mat_Vial_Glass")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
-        bsdf.inputs["Base Color"].default_value = (0.9, 0.95, 1.0, 1.0)
-        bsdf.inputs["Transmission Weight"].default_value = 0.95
-        bsdf.inputs["Roughness"].default_value = 0.05
+        bsdf.inputs["Base Color"].default_value = (0.8, 0.9, 0.95, 1.0)
+        bsdf.inputs["Transmission Weight"].default_value = 0.3
+        bsdf.inputs["Roughness"].default_value = 0.1
         bsdf.inputs["IOR"].default_value = 1.5
+        bsdf.inputs["Alpha"].default_value = 0.6
     vial.data.materials.append(mat)
 
-    print("  Created vial (start above cradle, drops in during Act 1)")
+    print("  Created vial (lying on side, start above cradle, drops in Act 1)")
     return vial
 
 
@@ -304,27 +315,34 @@ def create_composite_feed():
     """Create the composite label+backing strip that follows the feed path.
 
     This represents the combined material from spool to peel edge:
-    backing paper with labels printed on it. Uses a subdivided plane
-    with a Curve modifier to follow the path.
+    backing paper with labels printed on it. Built as a subdivided strip
+    mesh (no edit mode needed) with a Curve modifier to follow the path.
 
     Returns:
         The composite feed mesh object.
     """
-    # Path from spool_exit to peel_edge is ~250mm
     feed_length = 0.350  # extra length so strip can advance into view
     feed_width = LABEL_HEIGHT_M  # 20mm
+    segments = 120  # lengthwise subdivisions for smooth deformation
 
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
-    feed = bpy.context.active_object
-    feed.name = "CompositeFeed"
+    # Build strip mesh from vertices (avoids edit mode subdivide)
+    verts = []
+    faces = []
+    half_w = feed_width / 2
+    for i in range(segments + 1):
+        x = (i / segments) * feed_length
+        verts.append((x, -half_w, 0))
+        verts.append((x, half_w, 0))
+    for i in range(segments):
+        v0 = i * 2
+        faces.append((v0, v0 + 2, v0 + 3, v0 + 1))
 
-    feed.scale = (feed_length / 2, feed_width / 2, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    mesh = bpy.data.meshes.new("CompositeFeedMesh")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
 
-    # Subdivide for smooth curve deformation
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.subdivide(number_cuts=200)
-    bpy.ops.object.mode_set(mode="OBJECT")
+    feed = bpy.data.objects.new("CompositeFeed", mesh)
+    bpy.context.scene.collection.objects.link(feed)
 
     # Two-tone material: white backing with colored label rectangles
     mat = bpy.data.materials.new(name="Mat_CompositeFeed")
@@ -334,10 +352,8 @@ def create_composite_feed():
     bsdf = nodes.get("Principled BSDF")
 
     if bsdf:
-        # Use wave texture to create repeating label rectangles on backing
         tex_coord = nodes.new(type="ShaderNodeTexCoord")
         mapping = nodes.new(type="ShaderNodeMapping")
-        # Scale X to create label-width bands (40mm labels on 350mm strip)
         mapping.inputs["Scale"].default_value = (8.75, 1.0, 1.0)
 
         wave = nodes.new(type="ShaderNodeTexWave")
@@ -347,12 +363,11 @@ def create_composite_feed():
         wave.inputs["Distortion"].default_value = 0.0
         wave.inputs["Detail"].default_value = 0.0
 
-        # Color ramp: white backing (gap) vs colored label
         ramp = nodes.new(type="ShaderNodeValToRGB")
         ramp.color_ramp.elements[0].position = 0.0
-        ramp.color_ramp.elements[0].color = (0.95, 0.95, 0.92, 1.0)  # backing
+        ramp.color_ramp.elements[0].color = (0.95, 0.95, 0.92, 1.0)
         ramp.color_ramp.elements[1].position = 0.4
-        ramp.color_ramp.elements[1].color = (0.2, 0.6, 0.9, 1.0)  # label blue
+        ramp.color_ramp.elements[1].color = (0.2, 0.6, 0.9, 1.0)
 
         links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
         links.new(mapping.outputs["Vector"], wave.inputs["Vector"])
@@ -364,7 +379,8 @@ def create_composite_feed():
     feed.data.materials.append(mat)
 
     print(
-        f"  Created composite feed ({feed_length * 1000:.0f}mm x {feed_width * 1000:.0f}mm)"
+        f"  Created composite feed ({feed_length * 1000:.0f}mm x "
+        f"{feed_width * 1000:.0f}mm, {segments} segments)"
     )
     return feed
 
@@ -401,25 +417,33 @@ def create_feed_path_curve():
 def create_backing_return():
     """Create the backing paper strip that exits downward after peel edge.
 
-    The backing paper wraps 160° around the peel edge and exits below.
+    The backing paper wraps around the peel edge and exits below.
 
     Returns:
         The backing return mesh object.
     """
-    backing_length = 0.080  # 80mm visible return path
+    backing_length = 0.080
     backing_width = LABEL_HEIGHT_M
+    segments = 40
 
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
-    backing = bpy.context.active_object
-    backing.name = "BackingReturn"
+    # Build mesh without edit mode
+    verts = []
+    faces = []
+    half_w = backing_width / 2
+    for i in range(segments + 1):
+        x = (i / segments) * backing_length
+        verts.append((x, -half_w, 0))
+        verts.append((x, half_w, 0))
+    for i in range(segments):
+        v0 = i * 2
+        faces.append((v0, v0 + 2, v0 + 3, v0 + 1))
 
-    backing.scale = (backing_length / 2, backing_width / 2, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    mesh = bpy.data.meshes.new("BackingReturnMesh")
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
 
-    # Subdivide for curve
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.subdivide(number_cuts=40)
-    bpy.ops.object.mode_set(mode="OBJECT")
+    backing = bpy.data.objects.new("BackingReturn", mesh)
+    bpy.context.scene.collection.objects.link(backing)
 
     # Create return path curve: peel edge → downward exit
     curve_data = bpy.data.curves.new(name="BackingReturnCurve", type="CURVE")
@@ -427,20 +451,18 @@ def create_backing_return():
     curve_data.resolution_u = 32
 
     spline = curve_data.splines.new("BEZIER")
-    spline.bezier_points.add(1)  # 2 points total
+    spline.bezier_points.add(1)
 
-    # Start at peel edge
     bp0 = spline.bezier_points[0]
     bp0.co = PEEL_EDGE_POS
     bp0.handle_left_type = "AUTO"
     bp0.handle_right_type = "AUTO"
 
-    # Exit below and behind peel plate
     exit_pos = Vector(
         (
-            PEEL_EDGE_POS.x - 0.03,  # back toward machine
+            PEEL_EDGE_POS.x - 0.03,
             PEEL_EDGE_POS.y,
-            PEEL_EDGE_POS.z - 0.06,  # 60mm below peel edge
+            PEEL_EDGE_POS.z - 0.06,
         )
     )
     bp1 = spline.bezier_points[1]
@@ -457,15 +479,13 @@ def create_backing_return():
     mod.object = backing_curve
     mod.deform_axis = "POS_X"
 
-    # White semi-transparent backing paper material
+    # White backing paper material
     mat = bpy.data.materials.new(name="Mat_BackingReturn")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
         bsdf.inputs["Base Color"].default_value = (0.92, 0.90, 0.85, 1.0)
         bsdf.inputs["Roughness"].default_value = 0.4
-        bsdf.inputs["Alpha"].default_value = 0.8
-    mat.blend_method = "BLEND" if hasattr(mat, "blend_method") else None
     backing.data.materials.append(mat)
 
     print("  Created backing return path (peel edge → downward exit)")
@@ -476,6 +496,7 @@ def create_active_label(cradle_position):
     """Create the label that peels off and wraps around the vial.
 
     Uses shape keys: basis = flat on peel plate, key1 = wrapped around vial.
+    The vial lies on its side (Y-axis), so wrapping is around Y axis.
 
     Args:
         cradle_position: VialCradle position from manifest (meters).
@@ -486,64 +507,65 @@ def create_active_label(cradle_position):
     label_w = LABEL_WIDTH_M  # 40mm — wraps around circumference
     label_h = LABEL_HEIGHT_M  # 20mm — along vial axis
     vial_r = VIAL_DIAMETER_M / 2  # 8mm
+    segments_x = 60  # around circumference
+    segments_y = 4  # along vial axis
 
-    # Create label as a subdivided plane
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
-    label = bpy.context.active_object
-    label.name = "ActiveLabel"
+    # Build subdivided plane mesh without edit mode
+    verts = []
+    faces = []
+    for iy in range(segments_y + 1):
+        for ix in range(segments_x + 1):
+            x = (ix / segments_x - 0.5) * label_w
+            y = (iy / segments_y - 0.5) * label_h
+            verts.append((x, y, 0))
+    for iy in range(segments_y):
+        for ix in range(segments_x):
+            row = iy * (segments_x + 1)
+            v0 = row + ix
+            v1 = row + ix + 1
+            v2 = row + ix + 1 + (segments_x + 1)
+            v3 = row + ix + (segments_x + 1)
+            faces.append((v0, v1, v2, v3))
 
-    label.scale = (label_w / 2, label_h / 2, 1.0)
-    bpy.ops.object.transform_apply(scale=True)
+    mesh_data = bpy.data.meshes.new("ActiveLabelMesh")
+    mesh_data.from_pydata(verts, [], faces)
+    mesh_data.update()
 
-    # Subdivide for smooth wrapping
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.subdivide(number_cuts=60)
-    bpy.ops.object.mode_set(mode="OBJECT")
+    label = bpy.data.objects.new("ActiveLabel", mesh_data)
+    bpy.context.scene.collection.objects.link(label)
 
     # Position flat on peel plate surface near peel edge
     label.location = Vector(
         (
             PEEL_EDGE_POS.x + label_w / 2,
             PEEL_EDGE_POS.y,
-            PEEL_EDGE_POS.z + 0.001,  # just above peel surface
+            PEEL_EDGE_POS.z + 0.001,
         )
     )
-    # Rotate so label lies flat on XY plane
-    label.rotation_euler = (0, 0, 0)
 
     # --- Shape keys for wrapping ---
-    # Basis shape key (flat label on peel plate)
     label.shape_key_add(name="Basis", from_mix=False)
-
-    # Wrapped shape key (label curved around vial)
     sk_wrap = label.shape_key_add(name="Wrapped", from_mix=False)
 
-    # Calculate wrapped vertex positions
-    # The label wraps around the vial — map X coordinate to angle
+    # Vial lies on side: cylinder axis is Y, center at cradle position
     vial_center_x = cradle_position.x
-    vial_center_y = cradle_position.y
-    vial_z = cradle_position.z + VIAL_HEIGHT_M / 2
+    vial_center_z = cradle_position.z + VIAL_DIAMETER_M / 2 + 0.008
 
-    mesh = label.data
-    for i, vert in enumerate(mesh.vertices):
-        # Original flat position
+    for i, vert in enumerate(mesh_data.vertices):
         flat_x = vert.co.x
         flat_y = vert.co.y
 
-        # Map X position to angle around vial (label_w maps to ~270°)
-        # Normalize x from [-label_w/2, label_w/2] to [0, 1]
+        # Map X to angle around vial (wrapping in XZ plane since vial Y-axis)
         t = (flat_x + label_w / 2) / label_w
-        angle = t * math.radians(270)  # 270° wrap
+        angle = t * math.radians(270)
 
-        # Wrapped position: cylindrical coordinates around vial center
-        wrap_r = vial_r + 0.0002  # tiny offset above vial surface
+        wrap_r = vial_r + 0.0003
         wrapped_x = vial_center_x + wrap_r * math.cos(angle) - label.location.x
-        wrapped_y = vial_center_y + wrap_r * math.sin(angle) - label.location.y
-        wrapped_z = vial_z + flat_y - label.location.z  # Y maps to Z on vial
+        wrapped_y = flat_y  # Y stays the same (along vial axis)
+        wrapped_z = vial_center_z + wrap_r * math.sin(angle) - label.location.z
 
         sk_wrap.data[i].co = Vector((wrapped_x, wrapped_y, wrapped_z))
 
-    # Start with wrap value at 0 (flat)
     sk_wrap.value = 0.0
 
     # Colored label material
@@ -551,7 +573,7 @@ def create_active_label(cradle_position):
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
-        bsdf.inputs["Base Color"].default_value = (0.2, 0.6, 0.9, 1.0)  # blue label
+        bsdf.inputs["Base Color"].default_value = (0.2, 0.6, 0.9, 1.0)
         bsdf.inputs["Roughness"].default_value = 0.25
     label.data.materials.append(mat)
 
@@ -578,7 +600,8 @@ def create_label_roll(spool_position):
     )
     roll = bpy.context.active_object
     roll.name = "LabelRoll"
-    bpy.ops.object.shade_smooth()
+    for face in roll.data.polygons:
+        face.use_smooth = True
 
     mat = bpy.data.materials.new(name="Mat_LabelRoll")
     mat.use_nodes = True
@@ -716,11 +739,12 @@ def setup_animation(fps, duration, cradle_position):
 
     # --- Act 3: Vial rotation ---
     if vial:
-        vial.rotation_euler = (0, 0, 0)
+        # Vial lies on side with rotation_euler.x = 90°, so spin around Y
+        vial.rotation_euler = (math.radians(90), 0, 0)
         vial.keyframe_insert(data_path="rotation_euler", frame=act2_end)
 
-        # Rotate as label wraps (270° wrap = 3/4 turn, plus a bit more)
-        vial.rotation_euler = (0, 0, math.radians(300))
+        # Rotate around Y axis (vial's length axis when lying on side)
+        vial.rotation_euler = (math.radians(90), math.radians(300), 0)
         vial.keyframe_insert(data_path="rotation_euler", frame=act3_end)
 
         # Hold
@@ -843,15 +867,8 @@ def setup_camera_animation(center, dist, fps, duration):
     cam.keyframe_insert(data_path="location", frame=total)
     cam.keyframe_insert(data_path="rotation_euler", frame=total)
 
-    # DoF: tighten during close-up
-    cam.data.dof.use_dof = True
-    cam.data.dof.aperture_fstop = 5.6
-    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=1)
-    cam.data.dof.aperture_fstop = 2.8
-    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=act2_end)
-    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=act3_end)
-    cam.data.dof.aperture_fstop = 4.0
-    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=total)
+    # No DoF — keep everything sharp and visible
+    cam.data.dof.use_dof = False
 
     print(
         f"  Camera: establish 1-{act1_end}, dolly {act1_end}-{act2_end}, "
@@ -1077,7 +1094,7 @@ def main():
         center.y - dist * 0.7,
         center.z + dist * 0.4,
     )
-    setup_camera(cam_pos, tuple(center), lens=50, dof_enabled=True, f_stop=5.6)
+    setup_camera(cam_pos, tuple(center), lens=35, dof_enabled=False)
 
     # Configure render
     print("\n5. Configuring render...")
@@ -1093,10 +1110,8 @@ def main():
     print("\n7. Setting up camera animation...")
     setup_camera_animation(center, dist, args.fps, args.duration)
 
-    # Motion blur
     scene = bpy.context.scene
-    scene.render.use_motion_blur = True
-    scene.render.motion_blur_shutter = 0.5
+    scene.render.use_motion_blur = False
 
     # Render
     total_frames = scene.frame_end
