@@ -735,6 +735,8 @@ dependencies = [
 name = "vial-applicator-vcad"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "toml",
  "vcad",
 ]
 

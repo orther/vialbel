@@ -5,39 +5,34 @@
 
 use vcad::*;
 
-// Parameters (matching src/vial_cradle.py)
-const VIAL_DIAMETER: f64 = 16.0;
-const CRADLE_LENGTH: f64 = 35.0;
-const BASE_WIDTH: f64 = VIAL_DIAMETER + 20.0;  // 36mm
-const BASE_HEIGHT: f64 = 5.0;
-const V_BLOCK_HEIGHT: f64 = 18.0;  // total height above base
-const MOUNT_SLOT_SPACING_X: f64 = 36.0;
-const MOUNT_SLOT_SPACING_Y: f64 = 20.0;
-const M3_HOLE: f64 = 3.4;
+use crate::config::Config;
 
-pub fn build() -> Part {
+pub fn build(cfg: &Config) -> Part {
+    let cradle_length = cfg.vial_height - 3.5; // match Python: vial_height - small clearance
+    let base_width = cfg.vial_diameter + 20.0;
+    let m3_hole = 3.4;
+
     // Base plate
-    let base = centered_cube("base", CRADLE_LENGTH + 18.0, BASE_WIDTH, BASE_HEIGHT);
+    let base = centered_cube("base", cradle_length + 18.0, base_width, cfg.cradle_base_height);
 
     // V-block body — tall block that will be cut to form the V
-    let v_body = centered_cube("v_body", CRADLE_LENGTH, BASE_WIDTH, V_BLOCK_HEIGHT)
-        .translate(0.0, 0.0, BASE_HEIGHT / 2.0 + V_BLOCK_HEIGHT / 2.0);
+    let v_body = centered_cube("v_body", cradle_length, base_width, cfg.cradle_v_block_height)
+        .translate(0.0, 0.0, cfg.cradle_base_height / 2.0 + cfg.cradle_v_block_height / 2.0);
 
     // V-groove cut — approximate with two angled boxes rotated 45 degrees.
-    // A 90-degree V-groove for a 16mm vial.
-    let cut_size = VIAL_DIAMETER * 1.5;
-    let cut_block = centered_cube("cut", CRADLE_LENGTH + 2.0, cut_size, cut_size)
+    let cut_size = cfg.vial_diameter * 1.5;
+    let cut_block = centered_cube("cut", cradle_length + 2.0, cut_size, cut_size)
         .rotate(45.0, 0.0, 0.0)
-        .translate(0.0, 0.0, BASE_HEIGHT + V_BLOCK_HEIGHT - cut_size * 0.35);
+        .translate(0.0, 0.0, cfg.cradle_base_height + cfg.cradle_v_block_height - cut_size * 0.35);
 
     // Mounting holes — 4 holes at corners of the base
-    let hole = centered_cylinder("hole", M3_HOLE / 2.0, BASE_HEIGHT + 2.0, 32);
+    let hole = centered_cylinder("hole", m3_hole / 2.0, cfg.cradle_base_height + 2.0, 32);
     let holes = hole
-        .linear_pattern(MOUNT_SLOT_SPACING_X, 0.0, 0.0, 2)
-        .linear_pattern(0.0, MOUNT_SLOT_SPACING_Y, 0.0, 2)
+        .linear_pattern(cfg.cradle_mount_slot_spacing_x, 0.0, 0.0, 2)
+        .linear_pattern(0.0, cfg.cradle_mount_slot_spacing_y, 0.0, 2)
         .translate(
-            -MOUNT_SLOT_SPACING_X / 2.0,
-            -MOUNT_SLOT_SPACING_Y / 2.0,
+            -cfg.cradle_mount_slot_spacing_x / 2.0,
+            -cfg.cradle_mount_slot_spacing_y / 2.0,
             0.0,
         );
 

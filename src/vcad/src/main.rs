@@ -4,6 +4,7 @@
 //! These lack BREP fillets (vcad is mesh-based) but are suitable for
 //! Blender MCP import and rapid prototyping.
 
+mod config;
 mod dancer_arm;
 mod frame;
 mod guide_roller_bracket;
@@ -15,9 +16,12 @@ fn main() {
     let output_dir = "../../models/vcad";
     std::fs::create_dir_all(output_dir).expect("Failed to create output directory");
 
+    let cfg = config::load_config();
+
     println!("Building vcad components...\n");
 
-    let components: Vec<(&str, Box<dyn Fn() -> vcad::Part>)> = vec![
+    type BuildFn = Box<dyn Fn(&config::Config) -> vcad::Part>;
+    let components: Vec<(&str, BuildFn)> = vec![
         ("peel_plate", Box::new(peel_plate::build)),
         ("vial_cradle", Box::new(vial_cradle::build)),
         ("main_frame", Box::new(frame::build)),
@@ -27,7 +31,7 @@ fn main() {
     ];
 
     for (name, build_fn) in &components {
-        let part = build_fn();
+        let part = build_fn(&cfg);
         let path = format!("{}/{}.stl", output_dir, name);
         part.write_stl(&path)
             .unwrap_or_else(|e| panic!("Failed to write {} STL: {}", name, e));
