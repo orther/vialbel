@@ -257,19 +257,21 @@ def compute_camera_distance(bbox_min, bbox_max, fov_deg=50.0, fill_fraction=0.7)
 # Animation-specific objects
 # ---------------------------------------------------------------------------
 
+# Peel edge position — the critical separation point
+PEEL_EDGE_POS = Vector(WAYPOINTS[4]["pos"])
+VIAL_CONTACT_POS = Vector(WAYPOINTS[5]["pos"])
+
 
 def create_vial(cradle_position):
-    """Create a glass vial cylinder at the cradle position.
-
-    Args:
-        cradle_position: VialCradle position from manifest (meters).
+    """Create a glass vial cylinder above the cradle (will animate drop-in).
 
     Returns:
-        The vial mesh object.
+        The vial mesh object positioned above the cradle for drop-in animation.
     """
-    # Vial sits in cradle — center it vertically above cradle base
     vial_z = cradle_position.z + VIAL_HEIGHT_M / 2
-    vial_loc = (cradle_position.x, cradle_position.y, vial_z)
+    # Start position: above cradle for drop-in
+    start_z = vial_z + 0.15  # 150mm above final position
+    vial_loc = (cradle_position.x, cradle_position.y, start_z)
 
     bpy.ops.mesh.primitive_cylinder_add(
         radius=VIAL_DIAMETER_M / 2,
@@ -278,9 +280,10 @@ def create_vial(cradle_position):
     )
     vial = bpy.context.active_object
     vial.name = "Vial"
-
-    # Smooth shading
     bpy.ops.object.shade_smooth()
+
+    # Store final Z position as custom property for animation
+    vial["final_z"] = vial_z
 
     # Glass material
     mat = bpy.data.materials.new(name="Mat_Vial_Glass")
@@ -293,63 +296,278 @@ def create_vial(cradle_position):
         bsdf.inputs["IOR"].default_value = 1.5
     vial.data.materials.append(mat)
 
-    print(f"  Created vial at {vial_loc}")
+    print("  Created vial (start above cradle, drops in during Act 1)")
     return vial
 
 
-def create_label_strip():
-    """Create a subdivided plane mesh for the label strip.
+def create_composite_feed():
+    """Create the composite label+backing strip that follows the feed path.
 
-    The strip runs along the label path and will be deformed by a Curve
-    modifier in Phase 2. Length is sized for the full path (~300mm).
+    This represents the combined material from spool to peel edge:
+    backing paper with labels printed on it. Uses a subdivided plane
+    with a Curve modifier to follow the path.
 
     Returns:
-        The label strip mesh object.
+        The composite feed mesh object.
     """
-    strip_length = 0.300  # 300mm total path
-    strip_width = LABEL_HEIGHT_M  # 20mm label height = strip width
+    # Path from spool_exit to peel_edge is ~250mm
+    feed_length = 0.350  # extra length so strip can advance into view
+    feed_width = LABEL_HEIGHT_M  # 20mm
 
     bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
-    strip = bpy.context.active_object
-    strip.name = "LabelStrip"
+    feed = bpy.context.active_object
+    feed.name = "CompositeFeed"
 
-    # Scale to label dimensions
-    strip.scale = (strip_length / 2, strip_width / 2, 1.0)
+    feed.scale = (feed_length / 2, feed_width / 2, 1.0)
     bpy.ops.object.transform_apply(scale=True)
 
-    # Subdivide along length for smooth curve deformation
+    # Subdivide for smooth curve deformation
     bpy.ops.object.mode_set(mode="EDIT")
     bpy.ops.mesh.subdivide(number_cuts=200)
     bpy.ops.object.mode_set(mode="OBJECT")
 
-    # Paper-like white material
-    mat = bpy.data.materials.new(name="Mat_LabelStrip")
+    # Two-tone material: white backing with colored label rectangles
+    mat = bpy.data.materials.new(name="Mat_CompositeFeed")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    bsdf = nodes.get("Principled BSDF")
+
+    if bsdf:
+        # Use wave texture to create repeating label rectangles on backing
+        tex_coord = nodes.new(type="ShaderNodeTexCoord")
+        mapping = nodes.new(type="ShaderNodeMapping")
+        # Scale X to create label-width bands (40mm labels on 350mm strip)
+        mapping.inputs["Scale"].default_value = (8.75, 1.0, 1.0)
+
+        wave = nodes.new(type="ShaderNodeTexWave")
+        wave.wave_type = "BANDS"
+        wave.bands_direction = "X"
+        wave.inputs["Scale"].default_value = 1.0
+        wave.inputs["Distortion"].default_value = 0.0
+        wave.inputs["Detail"].default_value = 0.0
+
+        # Color ramp: white backing (gap) vs colored label
+        ramp = nodes.new(type="ShaderNodeValToRGB")
+        ramp.color_ramp.elements[0].position = 0.0
+        ramp.color_ramp.elements[0].color = (0.95, 0.95, 0.92, 1.0)  # backing
+        ramp.color_ramp.elements[1].position = 0.4
+        ramp.color_ramp.elements[1].color = (0.2, 0.6, 0.9, 1.0)  # label blue
+
+        links.new(tex_coord.outputs["Generated"], mapping.inputs["Vector"])
+        links.new(mapping.outputs["Vector"], wave.inputs["Vector"])
+        links.new(wave.outputs["Fac"], ramp.inputs["Fac"])
+        links.new(ramp.outputs["Color"], bsdf.inputs["Base Color"])
+
+        bsdf.inputs["Roughness"].default_value = 0.3
+
+    feed.data.materials.append(mat)
+
+    print(
+        f"  Created composite feed ({feed_length * 1000:.0f}mm x {feed_width * 1000:.0f}mm)"
+    )
+    return feed
+
+
+def create_feed_path_curve():
+    """Create curve from spool exit to peel edge (feed path only).
+
+    Returns:
+        The curve object.
+    """
+    # Use waypoints 0-4 (spool_exit through peel_edge)
+    feed_wps = WAYPOINTS[:5]
+
+    curve_data = bpy.data.curves.new(name="FeedPathCurve", type="CURVE")
+    curve_data.dimensions = "3D"
+    curve_data.resolution_u = 64
+
+    spline = curve_data.splines.new("BEZIER")
+    spline.bezier_points.add(len(feed_wps) - 1)
+
+    for i, wp in enumerate(feed_wps):
+        bp = spline.bezier_points[i]
+        bp.co = Vector(wp["pos"])
+        bp.handle_left_type = "AUTO"
+        bp.handle_right_type = "AUTO"
+
+    curve_obj = bpy.data.objects.new("FeedPath", curve_data)
+    bpy.context.scene.collection.objects.link(curve_obj)
+
+    print(f"  Created feed path curve ({len(feed_wps)} points, spool→peel edge)")
+    return curve_obj
+
+
+def create_backing_return():
+    """Create the backing paper strip that exits downward after peel edge.
+
+    The backing paper wraps 160° around the peel edge and exits below.
+
+    Returns:
+        The backing return mesh object.
+    """
+    backing_length = 0.080  # 80mm visible return path
+    backing_width = LABEL_HEIGHT_M
+
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
+    backing = bpy.context.active_object
+    backing.name = "BackingReturn"
+
+    backing.scale = (backing_length / 2, backing_width / 2, 1.0)
+    bpy.ops.object.transform_apply(scale=True)
+
+    # Subdivide for curve
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.subdivide(number_cuts=40)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Create return path curve: peel edge → downward exit
+    curve_data = bpy.data.curves.new(name="BackingReturnCurve", type="CURVE")
+    curve_data.dimensions = "3D"
+    curve_data.resolution_u = 32
+
+    spline = curve_data.splines.new("BEZIER")
+    spline.bezier_points.add(1)  # 2 points total
+
+    # Start at peel edge
+    bp0 = spline.bezier_points[0]
+    bp0.co = PEEL_EDGE_POS
+    bp0.handle_left_type = "AUTO"
+    bp0.handle_right_type = "AUTO"
+
+    # Exit below and behind peel plate
+    exit_pos = Vector(
+        (
+            PEEL_EDGE_POS.x - 0.03,  # back toward machine
+            PEEL_EDGE_POS.y,
+            PEEL_EDGE_POS.z - 0.06,  # 60mm below peel edge
+        )
+    )
+    bp1 = spline.bezier_points[1]
+    bp1.co = exit_pos
+    bp1.handle_left_type = "AUTO"
+    bp1.handle_right_type = "AUTO"
+
+    backing_curve = bpy.data.objects.new("BackingReturnPath", curve_data)
+    bpy.context.scene.collection.objects.link(backing_curve)
+
+    # Attach backing to its curve
+    backing.location = PEEL_EDGE_POS
+    mod = backing.modifiers.new("CurveDeform", "CURVE")
+    mod.object = backing_curve
+    mod.deform_axis = "POS_X"
+
+    # White semi-transparent backing paper material
+    mat = bpy.data.materials.new(name="Mat_BackingReturn")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
     if bsdf:
-        bsdf.inputs["Base Color"].default_value = (1.0, 1.0, 1.0, 1.0)
-        bsdf.inputs["Roughness"].default_value = 0.3
-    strip.data.materials.append(mat)
+        bsdf.inputs["Base Color"].default_value = (0.92, 0.90, 0.85, 1.0)
+        bsdf.inputs["Roughness"].default_value = 0.4
+        bsdf.inputs["Alpha"].default_value = 0.8
+    mat.blend_method = "BLEND" if hasattr(mat, "blend_method") else None
+    backing.data.materials.append(mat)
 
-    print(
-        f"  Created label strip ({strip_length * 1000:.0f}mm x {strip_width * 1000:.0f}mm)"
+    print("  Created backing return path (peel edge → downward exit)")
+    return backing
+
+
+def create_active_label(cradle_position):
+    """Create the label that peels off and wraps around the vial.
+
+    Uses shape keys: basis = flat on peel plate, key1 = wrapped around vial.
+
+    Args:
+        cradle_position: VialCradle position from manifest (meters).
+
+    Returns:
+        The active label mesh object.
+    """
+    label_w = LABEL_WIDTH_M  # 40mm — wraps around circumference
+    label_h = LABEL_HEIGHT_M  # 20mm — along vial axis
+    vial_r = VIAL_DIAMETER_M / 2  # 8mm
+
+    # Create label as a subdivided plane
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=(0, 0, 0))
+    label = bpy.context.active_object
+    label.name = "ActiveLabel"
+
+    label.scale = (label_w / 2, label_h / 2, 1.0)
+    bpy.ops.object.transform_apply(scale=True)
+
+    # Subdivide for smooth wrapping
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.subdivide(number_cuts=60)
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Position flat on peel plate surface near peel edge
+    label.location = Vector(
+        (
+            PEEL_EDGE_POS.x + label_w / 2,
+            PEEL_EDGE_POS.y,
+            PEEL_EDGE_POS.z + 0.001,  # just above peel surface
+        )
     )
-    return strip
+    # Rotate so label lies flat on XY plane
+    label.rotation_euler = (0, 0, 0)
+
+    # --- Shape keys for wrapping ---
+    # Basis shape key (flat label on peel plate)
+    label.shape_key_add(name="Basis", from_mix=False)
+
+    # Wrapped shape key (label curved around vial)
+    sk_wrap = label.shape_key_add(name="Wrapped", from_mix=False)
+
+    # Calculate wrapped vertex positions
+    # The label wraps around the vial — map X coordinate to angle
+    vial_center_x = cradle_position.x
+    vial_center_y = cradle_position.y
+    vial_z = cradle_position.z + VIAL_HEIGHT_M / 2
+
+    mesh = label.data
+    for i, vert in enumerate(mesh.vertices):
+        # Original flat position
+        flat_x = vert.co.x
+        flat_y = vert.co.y
+
+        # Map X position to angle around vial (label_w maps to ~270°)
+        # Normalize x from [-label_w/2, label_w/2] to [0, 1]
+        t = (flat_x + label_w / 2) / label_w
+        angle = t * math.radians(270)  # 270° wrap
+
+        # Wrapped position: cylindrical coordinates around vial center
+        wrap_r = vial_r + 0.0002  # tiny offset above vial surface
+        wrapped_x = vial_center_x + wrap_r * math.cos(angle) - label.location.x
+        wrapped_y = vial_center_y + wrap_r * math.sin(angle) - label.location.y
+        wrapped_z = vial_z + flat_y - label.location.z  # Y maps to Z on vial
+
+        sk_wrap.data[i].co = Vector((wrapped_x, wrapped_y, wrapped_z))
+
+    # Start with wrap value at 0 (flat)
+    sk_wrap.value = 0.0
+
+    # Colored label material
+    mat = bpy.data.materials.new(name="Mat_ActiveLabel")
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    if bsdf:
+        bsdf.inputs["Base Color"].default_value = (0.2, 0.6, 0.9, 1.0)  # blue label
+        bsdf.inputs["Roughness"].default_value = 0.25
+    label.data.materials.append(mat)
+
+    print("  Created active label with flat→wrapped shape keys")
+    return label
 
 
 def create_label_roll(spool_position):
-    """Create a label roll (torus-like cylinder) on the spool.
-
-    Args:
-        spool_position: SpoolHolder position from manifest (meters).
+    """Create a label roll on the spool.
 
     Returns:
         The label roll mesh object.
     """
-    outer_r = SPOOL_FLANGE_DIAMETER_M / 2 * 0.9  # slightly smaller than flange
+    outer_r = SPOOL_FLANGE_DIAMETER_M / 2 * 0.9
     roll_height = LABEL_HEIGHT_M * 0.9
 
-    # Position above spool base
     roll_z = spool_position.z + roll_height / 2 + 0.003
     roll_loc = (spool_position.x, spool_position.y, roll_z)
 
@@ -360,10 +578,8 @@ def create_label_roll(spool_position):
     )
     roll = bpy.context.active_object
     roll.name = "LabelRoll"
-
     bpy.ops.object.shade_smooth()
 
-    # Same paper-white material
     mat = bpy.data.materials.new(name="Mat_LabelRoll")
     mat.use_nodes = True
     bsdf = mat.node_tree.nodes.get("Principled BSDF")
@@ -374,64 +590,6 @@ def create_label_roll(spool_position):
 
     print(f"  Created label roll at {roll_loc}")
     return roll
-
-
-# ---------------------------------------------------------------------------
-# Label path curve + deformation
-# ---------------------------------------------------------------------------
-
-
-def create_label_path_curve():
-    """Create a 3D Bezier curve following the label path waypoints.
-
-    Returns:
-        The curve object.
-    """
-    curve_data = bpy.data.curves.new(name="LabelPathCurve", type="CURVE")
-    curve_data.dimensions = "3D"
-    curve_data.resolution_u = 64
-
-    spline = curve_data.splines.new("BEZIER")
-    spline.bezier_points.add(len(WAYPOINTS) - 1)
-
-    for i, wp in enumerate(WAYPOINTS):
-        bp = spline.bezier_points[i]
-        bp.co = Vector(wp["pos"])
-        bp.handle_left_type = "AUTO"
-        bp.handle_right_type = "AUTO"
-
-    # Tighten handles at sharp bends (peel edge especially)
-    for i, wp in enumerate(WAYPOINTS):
-        if wp.get("radius", 0) > 0:
-            bp = spline.bezier_points[i]
-            radius = wp["radius"]
-            if radius <= 0.002:
-                # Sharp peel edge — use vector handles for crisp bend
-                bp.handle_left_type = "VECTOR"
-                bp.handle_right_type = "VECTOR"
-
-    curve_obj = bpy.data.objects.new("LabelPath", curve_data)
-    bpy.context.scene.collection.objects.link(curve_obj)
-
-    print("  Created label path curve with", len(WAYPOINTS), "control points")
-    return curve_obj
-
-
-def attach_strip_to_curve(strip, curve):
-    """Attach the label strip mesh to the path curve via Curve modifier.
-
-    Args:
-        strip: The LabelStrip mesh object.
-        curve: The LabelPath curve object.
-    """
-    # Position strip origin at curve start
-    strip.location = Vector(WAYPOINTS[0]["pos"])
-
-    mod = strip.modifiers.new("CurveDeform", "CURVE")
-    mod.object = curve
-    mod.deform_axis = "POS_X"
-
-    print("  Attached label strip to path curve")
 
 
 # ---------------------------------------------------------------------------
@@ -453,7 +611,6 @@ def set_linear_interpolation(obj):
             for kp in fc.keyframe_points:
                 kp.interpolation = "LINEAR"
     except (ImportError, AttributeError):
-        # Fallback for older Blender versions
         try:
             for fc in action.fcurves:
                 for kp in fc.keyframe_points:
@@ -462,118 +619,165 @@ def set_linear_interpolation(obj):
             pass
 
 
-def setup_animation(fps, duration):
-    """Set up all animation keyframes.
+def setup_animation(fps, duration, cradle_position):
+    """Set up all animation keyframes for the 4-act label application demo.
 
-    Timing (at 30fps, 20s = 600 frames):
-      - Frames 1-60 (0-2s): Idle / establishing
-      - Frames 60-150 (2-5s): Label starts advancing from spool
-      - Frames 150-300 (5-10s): Label reaches vial, vial starts rotating
-      - Frames 300-450 (10-15s): Label wraps around vial
-      - Frames 450-600 (15-20s): Complete, hold
+    Act 1 (0-20%):  Vial drops into cradle, material pre-loaded
+    Act 2 (20-60%): Composite feed advances, label separates at peel edge
+    Act 3 (60-90%): Label wraps around spinning vial
+    Act 4 (90-100%): Hold — show completed labeled vial
 
     Args:
         fps: Frames per second.
         duration: Total duration in seconds.
+        cradle_position: VialCradle position (meters) for vial final Z.
     """
-    total_frames = int(fps * duration)
+    total = int(fps * duration)
 
-    # Get animated objects by name
+    # Act boundaries
+    act1_end = int(total * 0.20)
+    act2_end = int(total * 0.60)
+    act3_end = int(total * 0.90)
+
+    # --- Act 1: Vial drop-in ---
     vial = bpy.data.objects.get("Vial")
-    strip = bpy.data.objects.get("LabelStrip")
-    roll = bpy.data.objects.get("LabelRoll")
-    dancer = bpy.data.objects.get("DancerArm")
-
-    # Frame markers for animation phases
-    idle_end = int(total_frames * 0.10)  # 10% idle
-    feed_start = idle_end
-    contact_start = int(total_frames * 0.25)
-    wrap_end = int(total_frames * 0.75)
-
-    # --- Vial rotation ---
     if vial:
-        # Vial starts rotating when label contacts
-        vial.rotation_euler = (0, 0, 0)
-        vial.keyframe_insert(data_path="rotation_euler", frame=1)
-        vial.keyframe_insert(data_path="rotation_euler", frame=contact_start)
+        final_z = vial.get("final_z", cradle_position.z + VIAL_HEIGHT_M / 2)
 
-        # One full revolution during wrap phase
-        vial.rotation_euler = (0, 0, math.radians(360))
-        vial.keyframe_insert(data_path="rotation_euler", frame=wrap_end)
+        # Start above
+        vial.keyframe_insert(data_path="location", frame=1)
+        # Land in cradle
+        vial.location.z = final_z
+        vial.keyframe_insert(data_path="location", frame=act1_end)
+        # Hold position through rest of animation
+        vial.keyframe_insert(data_path="location", frame=total)
+        print(f"  Vial: drop-in frames 1-{act1_end}")
 
-        # Hold final position
-        vial.keyframe_insert(data_path="rotation_euler", frame=total_frames)
+    # --- Act 2: Composite feed advances ---
+    feed = bpy.data.objects.get("CompositeFeed")
+    if feed:
+        # Start pulled back (hidden behind spool area)
+        feed.location.x = WAYPOINTS[0]["pos"][0] - 0.35
+        feed.keyframe_insert(data_path="location", frame=1)
+        feed.keyframe_insert(data_path="location", frame=act1_end)
 
-        # Set linear interpolation for constant rotation speed
-        set_linear_interpolation(vial)
-
-        print(f"  Vial: rotate frames {contact_start}-{wrap_end}")
-
-    # --- Label strip offset (slide along curve) ---
-    if strip:
-        # Start off-curve (negative X offset hides strip)
-        strip.location.x = WAYPOINTS[0]["pos"][0] - 0.30
-        strip.keyframe_insert(data_path="location", frame=1)
-        strip.keyframe_insert(data_path="location", frame=feed_start)
-
-        # Advance to curve start
-        strip.location.x = WAYPOINTS[0]["pos"][0]
-        strip.keyframe_insert(data_path="location", frame=wrap_end)
+        # Advance through feed path — strip slides to show material feeding
+        feed.location.x = WAYPOINTS[0]["pos"][0]
+        feed.keyframe_insert(data_path="location", frame=act2_end)
 
         # Hold
-        strip.keyframe_insert(data_path="location", frame=total_frames)
+        feed.keyframe_insert(data_path="location", frame=total)
+        set_linear_interpolation(feed)
+        print(f"  Composite feed: advance frames {act1_end}-{act2_end}")
 
-        set_linear_interpolation(strip)
+    # --- Act 2: Backing return appears ---
+    backing = bpy.data.objects.get("BackingReturn")
+    if backing:
+        # Hidden at start (scale to 0)
+        backing.scale = (0.0, 1.0, 1.0)
+        backing.keyframe_insert(data_path="scale", frame=1)
+        backing.keyframe_insert(
+            data_path="scale", frame=int(act1_end + (act2_end - act1_end) * 0.3)
+        )
 
-        print(f"  Label strip: advance frames {feed_start}-{wrap_end}")
+        # Grows as backing feeds through
+        backing.scale = (1.0, 1.0, 1.0)
+        backing.keyframe_insert(data_path="scale", frame=act2_end)
+        backing.keyframe_insert(data_path="scale", frame=total)
+        print("  Backing return: appear during Act 2")
 
-    # --- Spool roll shrinking ---
+    # --- Act 2-3: Active label shape key (flat → wrapped) ---
+    label = bpy.data.objects.get("ActiveLabel")
+    if label and label.data.shape_keys:
+        wrap_key = label.data.shape_keys.key_blocks.get("Wrapped")
+        if wrap_key:
+            # Hidden during Act 1 (scale 0)
+            label.scale = (0.0, 0.0, 0.0)
+            label.keyframe_insert(data_path="scale", frame=1)
+            label.keyframe_insert(data_path="scale", frame=int(act2_end * 0.7))
+
+            # Appear at peel edge when composite reaches it
+            label.scale = (1.0, 1.0, 1.0)
+            label.keyframe_insert(data_path="scale", frame=int(act2_end * 0.8))
+
+            # Start flat (on peel plate)
+            wrap_key.value = 0.0
+            wrap_key.keyframe_insert(data_path="value", frame=int(act2_end * 0.8))
+            wrap_key.keyframe_insert(data_path="value", frame=act2_end)
+
+            # Wrap around vial during Act 3
+            wrap_key.value = 1.0
+            wrap_key.keyframe_insert(data_path="value", frame=act3_end)
+            wrap_key.keyframe_insert(data_path="value", frame=total)
+
+            print(
+                f"  Active label: appear at {int(act2_end * 0.8)}, wrap {act2_end}-{act3_end}"
+            )
+
+    # --- Act 3: Vial rotation ---
+    if vial:
+        vial.rotation_euler = (0, 0, 0)
+        vial.keyframe_insert(data_path="rotation_euler", frame=act2_end)
+
+        # Rotate as label wraps (270° wrap = 3/4 turn, plus a bit more)
+        vial.rotation_euler = (0, 0, math.radians(300))
+        vial.keyframe_insert(data_path="rotation_euler", frame=act3_end)
+
+        # Hold
+        vial.keyframe_insert(data_path="rotation_euler", frame=total)
+        set_linear_interpolation(vial)
+        print(f"  Vial: rotate frames {act2_end}-{act3_end}")
+
+    # --- Label roll shrinking (Acts 2-3) ---
+    roll = bpy.data.objects.get("LabelRoll")
     if roll:
         roll.scale = (1.0, 1.0, 1.0)
         roll.keyframe_insert(data_path="scale", frame=1)
-        roll.keyframe_insert(data_path="scale", frame=feed_start)
-
-        # Shrink as label feeds out
+        roll.keyframe_insert(data_path="scale", frame=act1_end)
         roll.scale = (0.7, 0.7, 1.0)
-        roll.keyframe_insert(data_path="scale", frame=wrap_end)
+        roll.keyframe_insert(data_path="scale", frame=act3_end)
+        roll.keyframe_insert(data_path="scale", frame=total)
+        print(f"  Label roll: shrink frames {act1_end}-{act3_end}")
 
-        roll.keyframe_insert(data_path="scale", frame=total_frames)
-        print(f"  Label roll: shrink frames {feed_start}-{wrap_end}")
-
-    # --- Dancer arm oscillation ---
+    # --- Dancer arm oscillation (Acts 2-3) ---
+    dancer = bpy.data.objects.get("DancerArm")
     if dancer:
-        osc_frames = 8  # number of oscillation keyframes
-        for i in range(osc_frames + 1):
-            frame = feed_start + int((wrap_end - feed_start) * i / osc_frames)
-            angle = math.radians(5.0 * math.sin(i * math.pi))
+        osc_count = 10
+        for i in range(osc_count + 1):
+            frame = act1_end + int((act3_end - act1_end) * i / osc_count)
+            angle = math.radians(5.0 * math.sin(i * math.pi * 2 / osc_count))
             dancer.rotation_euler.z = angle
             dancer.keyframe_insert(data_path="rotation_euler", index=2, frame=frame)
-        print(f"  Dancer arm: oscillate frames {feed_start}-{wrap_end}")
+        print(f"  Dancer arm: oscillate frames {act1_end}-{act3_end}")
 
-    print(f"  Animation: {total_frames} frames, {duration}s @ {fps}fps")
+    print(f"  Animation: {total} frames ({duration}s @ {fps}fps)")
+    print(
+        f"  Acts: setup 1-{act1_end}, feed {act1_end}-{act2_end}, "
+        f"wrap {act2_end}-{act3_end}, hold {act3_end}-{total}"
+    )
 
 
-def setup_camera_animation(center, peel_edge, vial_contact, dist, fps, duration):
-    """Animate camera through 3 phases: establishing, dolly, close-up.
+def setup_camera_animation(center, dist, fps, duration):
+    """Animate camera through 4 acts matching the label application story.
 
-    Args:
-        center: Assembly center point.
-        peel_edge: Peel edge position (meters).
-        vial_contact: Vial contact position (meters).
-        dist: Camera distance from assembly.
-        fps: Frames per second.
-        duration: Total duration in seconds.
+    Act 1: Wide establishing shot — see vial drop in
+    Act 2: Dolly toward peel plate — see separation
+    Act 3: Close-up vial/peel junction — see wrapping
+    Act 4: Pull back — see completed labeled vial
     """
-    total_frames = int(fps * duration)
+    total = int(fps * duration)
     cam = bpy.data.objects.get("AnimCam")
     if not cam:
         return
 
-    # Phase boundaries
-    phase1_end = int(total_frames * 0.20)  # establishing orbit
-    phase2_end = int(total_frames * 0.60)  # dolly toward peel
+    act1_end = int(total * 0.20)
+    act2_end = int(total * 0.60)
+    act3_end = int(total * 0.90)
 
-    # Phase 1: Wide establishing — slow orbit from isometric
+    peel_target = PEEL_EDGE_POS
+    vial_target = VIAL_CONTACT_POS
+
+    # Act 1: Wide establishing
     cam.location = Vector(
         (
             center.x + dist * 0.6,
@@ -585,8 +789,8 @@ def setup_camera_animation(center, peel_edge, vial_contact, dist, fps, duration)
     cam.keyframe_insert(data_path="location", frame=1)
     cam.keyframe_insert(data_path="rotation_euler", frame=1)
 
-    # End of orbit — rotated ~30 degrees around assembly
-    orbit_angle = math.radians(30)
+    # Slow orbit during Act 1
+    orbit_angle = math.radians(20)
     cam.location = Vector(
         (
             center.x
@@ -599,108 +803,60 @@ def setup_camera_animation(center, peel_edge, vial_contact, dist, fps, duration)
         )
     )
     look_at(cam, center)
-    cam.keyframe_insert(data_path="location", frame=phase1_end)
-    cam.keyframe_insert(data_path="rotation_euler", frame=phase1_end)
+    cam.keyframe_insert(data_path="location", frame=act1_end)
+    cam.keyframe_insert(data_path="rotation_euler", frame=act1_end)
 
-    # Phase 2: Dolly toward peel plate area
-    peel_target = Vector(peel_edge)
+    # Act 2: Dolly toward peel plate
     cam.location = Vector(
         (
-            peel_target.x + dist * 0.25,
-            peel_target.y - dist * 0.3,
-            peel_target.z + dist * 0.15,
+            peel_target.x + dist * 0.2,
+            peel_target.y - dist * 0.25,
+            peel_target.z + dist * 0.12,
         )
     )
     look_at(cam, peel_target)
-    cam.keyframe_insert(data_path="location", frame=phase2_end)
-    cam.keyframe_insert(data_path="rotation_euler", frame=phase2_end)
+    cam.keyframe_insert(data_path="location", frame=act2_end)
+    cam.keyframe_insert(data_path="rotation_euler", frame=act2_end)
 
-    # Phase 3: Close-up of label wrapping onto vial
-    vial_target = Vector(vial_contact)
+    # Act 3: Close-up on vial wrapping
+    mid_target = (peel_target + vial_target) / 2
     cam.location = Vector(
         (
-            vial_target.x + dist * 0.15,
-            vial_target.y - dist * 0.2,
-            vial_target.z + dist * 0.08,
+            mid_target.x + dist * 0.12,
+            mid_target.y - dist * 0.15,
+            mid_target.z + dist * 0.06,
+        )
+    )
+    look_at(cam, mid_target)
+    cam.keyframe_insert(data_path="location", frame=act3_end)
+    cam.keyframe_insert(data_path="rotation_euler", frame=act3_end)
+
+    # Act 4: Pull back to show result
+    cam.location = Vector(
+        (
+            center.x + dist * 0.5,
+            center.y - dist * 0.5,
+            center.z + dist * 0.3,
         )
     )
     look_at(cam, vial_target)
-    cam.keyframe_insert(data_path="location", frame=total_frames)
-    cam.keyframe_insert(data_path="rotation_euler", frame=total_frames)
+    cam.keyframe_insert(data_path="location", frame=total)
+    cam.keyframe_insert(data_path="rotation_euler", frame=total)
 
-    # Enable DoF for close-up phase
-    cam_data = cam.data
-    cam_data.dof.use_dof = True
-    cam_data.dof.aperture_fstop = 4.0
-    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=1)
-    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=phase2_end)
-    cam_data.dof.aperture_fstop = 2.8
-    cam_data.keyframe_insert(data_path="dof.aperture_fstop", frame=total_frames)
+    # DoF: tighten during close-up
+    cam.data.dof.use_dof = True
+    cam.data.dof.aperture_fstop = 5.6
+    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=1)
+    cam.data.dof.aperture_fstop = 2.8
+    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=act2_end)
+    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=act3_end)
+    cam.data.dof.aperture_fstop = 4.0
+    cam.data.keyframe_insert(data_path="dof.aperture_fstop", frame=total)
 
     print(
-        f"  Camera: orbit 1-{phase1_end}, dolly {phase1_end}-{phase2_end}, "
-        f"close-up {phase2_end}-{total_frames}"
+        f"  Camera: establish 1-{act1_end}, dolly {act1_end}-{act2_end}, "
+        f"close-up {act2_end}-{act3_end}, pull-back {act3_end}-{total}"
     )
-
-
-def add_label_texture():
-    """Add a procedural label texture to the label strip.
-
-    Creates a simple pattern: white base with a thin colored border
-    and noise-based text simulation.
-    """
-    strip = bpy.data.objects.get("LabelStrip")
-    if not strip or not strip.data.materials:
-        return
-
-    mat = strip.data.materials[0]
-    nodes = mat.node_tree.nodes
-    links = mat.node_tree.links
-
-    bsdf = nodes.get("Principled BSDF")
-    if not bsdf:
-        return
-
-    # Add noise texture to simulate printed text
-    tex_coord = nodes.new(type="ShaderNodeTexCoord")
-    noise = nodes.new(type="ShaderNodeTexNoise")
-    noise.inputs["Scale"].default_value = 80.0
-    noise.inputs["Detail"].default_value = 8.0
-
-    # Color ramp: mostly white with dark noise for "text"
-    ramp = nodes.new(type="ShaderNodeValToRGB")
-    ramp.color_ramp.elements[0].position = 0.0
-    ramp.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
-    ramp.color_ramp.elements[1].position = 0.55
-    ramp.color_ramp.elements[1].color = (0.15, 0.15, 0.15, 1.0)
-
-    # Mix with base white for subtle text effect
-    mix = nodes.new(type="ShaderNodeMix")
-    mix.data_type = "RGBA"
-    mix.inputs["Factor"].default_value = 0.3
-    mix.inputs[6].default_value = (1.0, 1.0, 1.0, 1.0)  # A color
-
-    links.new(tex_coord.outputs["Generated"], noise.inputs["Vector"])
-    links.new(noise.outputs["Fac"], ramp.inputs["Fac"])
-    links.new(ramp.outputs["Color"], mix.inputs[7])  # B color
-    links.new(mix.outputs[2], bsdf.inputs["Base Color"])  # Result
-
-    print("  Added procedural label texture")
-
-
-def configure_final_render(resolution, samples, fps, duration, preview=False):
-    """Configure render with motion blur and final quality settings."""
-    scene = bpy.context.scene
-
-    # Motion blur for mechanical feel
-    scene.render.use_motion_blur = True
-    scene.render.motion_blur_shutter = 0.5
-
-    # Output as PNG sequence (set in configure_render already)
-    # Set filepath pattern for animation rendering
-    scene.render.filepath = ""  # will be set per-frame or as pattern
-
-    print("  Enabled motion blur (shutter 0.5)")
 
 
 # ---------------------------------------------------------------------------
@@ -873,6 +1029,7 @@ def main():
     print("=" * 60)
     print("Vial Label Applicator — Animation Demo")
     print("=" * 60)
+    print("Shows: vial placement → label feed → separation → wrapping")
 
     # Clear and import assembly
     print("\n1. Importing assembly...")
@@ -886,35 +1043,41 @@ def main():
     bbox_min, bbox_max, center = get_assembly_bounds(objects)
     print(f"   Assembly center: {center}")
 
-    # Get component positions for animation objects
+    # Get component positions
     with open(MANIFEST_PATH, "r") as f:
         manifest = json.load(f)
     positions = {e["name"]: Vector(e["position"]) * 0.001 for e in manifest}
 
-    # Create animation-specific objects
+    # Create animation objects
     print("\n2. Creating animation objects...")
     create_vial(positions["VialCradle"])
-    strip = create_label_strip()
+    feed = create_composite_feed()
+    create_backing_return()
+    create_active_label(positions["VialCradle"])
     create_label_roll(positions["SpoolHolder"])
 
-    # Create label path curve and attach strip
-    print("\n3. Creating label path curve...")
-    curve = create_label_path_curve()
-    attach_strip_to_curve(strip, curve)
+    # Create feed path curve and attach composite feed
+    print("\n3. Creating feed path curve...")
+    feed_curve = create_feed_path_curve()
+    feed.location = Vector(WAYPOINTS[0]["pos"])
+    mod = feed.modifiers.new("CurveDeform", "CURVE")
+    mod.object = feed_curve
+    mod.deform_axis = "POS_X"
+    print("  Attached composite feed to path curve")
 
     # Scene setup
     print("\n4. Setting up scene...")
     setup_ground_plane(center, bbox_min)
     setup_three_point_lighting(center)
 
-    # Camera — establishing shot
+    # Camera — initial establishing shot
     dist = compute_camera_distance(bbox_min, bbox_max)
     cam_pos = (
         center.x + dist * 0.6,
         center.y - dist * 0.7,
         center.z + dist * 0.4,
     )
-    setup_camera(cam_pos, tuple(center), lens=50, dof_enabled=True, f_stop=4.0)
+    setup_camera(cam_pos, tuple(center), lens=50, dof_enabled=True, f_stop=5.6)
 
     # Configure render
     print("\n5. Configuring render...")
@@ -922,35 +1085,24 @@ def main():
         args.resolution, args.samples, args.fps, args.duration, args.preview
     )
 
-    # Animation keyframes
-    print("\n6. Setting up animation keyframes...")
-    setup_animation(args.fps, args.duration)
+    # Animation keyframes — the core storytelling
+    print("\n6. Setting up animation (4-act structure)...")
+    setup_animation(args.fps, args.duration, positions["VialCradle"])
 
     # Camera animation
     print("\n7. Setting up camera animation...")
-    peel_edge = WAYPOINTS[4]["pos"]
-    vial_contact = WAYPOINTS[5]["pos"]
-    setup_camera_animation(
-        center, peel_edge, vial_contact, dist, args.fps, args.duration
-    )
+    setup_camera_animation(center, dist, args.fps, args.duration)
 
-    # Label texture
-    print("\n8. Adding label texture...")
-    add_label_texture()
-
-    # Final render settings (motion blur)
-    configure_final_render(
-        args.resolution, args.samples, args.fps, args.duration, args.preview
-    )
+    # Motion blur
+    scene = bpy.context.scene
+    scene.render.use_motion_blur = True
+    scene.render.motion_blur_shutter = 0.5
 
     # Render
-    scene = bpy.context.scene
     total_frames = scene.frame_end
-
-    # Set output path pattern for animation rendering
     scene.render.filepath = os.path.join(args.output, "frame_")
 
-    print(f"\n9. Rendering {total_frames} frames...")
+    print(f"\n8. Rendering {total_frames} frames...")
     bpy.ops.render.render(animation=True)
 
     print(f"\nAnimation render complete — {total_frames} frames saved to {args.output}")
