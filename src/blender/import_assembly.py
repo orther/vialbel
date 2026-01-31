@@ -90,5 +90,4 @@ def setup_assembly():
     return imported
 
 
-if __name__ == "__main__":
-    setup_assembly()
+setup_assembly()
